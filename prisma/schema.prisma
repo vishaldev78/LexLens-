@@ -1,8 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// LexLens — production schema (SQLite).
+// Every user-owned row carries userId and is always queried through
+// requireUser() helpers so data isolation is enforced at the data layer.
 
 generator client {
   provider = "prisma-client-js"
@@ -14,19 +12,142 @@ datasource db {
 }
 
 model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  age           Int
+  email         String?  @unique
+  passwordHash  String
+  // Notification preferences (sensible defaults; user-tunable in Settings)
+  notifyEnabled Boolean  @default(true)
+  remind7       Boolean  @default(true)
+  remind3       Boolean  @default(true)
+  remind1       Boolean  @default(true)
+  remindDue     Boolean  @default(true)
+  remindOverdue Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  notices       Notice[]
+  notifications Notification[]
+  drafts        ResponseDraft[]
+  briefs        LawyerBrief[]
+  evidences     Evidence[]
+}
+
+model Notice {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  sourceLabel      String    @default("")
+  // pdf | png | jpg | jpeg | webp | text
+  fileType         String    @default("text")
+  // Stored OUTSIDE public/ — served only through the authenticated file API.
+  filePath         String?
+  fileMime         String?
+  fileSize         Int?
+  noticeText       String    @default("")
+  noticeType       String    @default("other")
+  jurisdiction     String    @default("")
+  noticeLanguage   String    @default("")
+  severity         String    @default("yellow")
+  claimedAmount    String?
+  currency         String?
+  noticeDate       DateTime?
+  receiptDate      DateTime?
+  deadlineDate     DateTime?
+  deadlineRule     String?
+  deadlineSourceId String?
+  // JSON blob: { inputs, position, evidence } — mirrors UserCaseState
+  userState        String    @default("{}")
+  completed        Boolean   @default(false)
+  analysisStatus   String    @default("PENDING") // PENDING | READY | FAILED
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  report        AnalysisReport?
+  notifications Notification[]
+  reminders     Reminder[]
+  drafts        ResponseDraft[]
+  briefs        LawyerBrief[]
+  evidences     Evidence[]
+
+  @@index([userId, createdAt])
+}
+
+model AnalysisReport {
   id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  noticeId  String   @unique
+  notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  userId    String
+  baseData  String // JSON — CaseBase (facts, citations, localized blocks…)
+  metaJson  String   @default("{}") // internal processing metadata (never user-facing)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Post {
+model Evidence {
+  id         String   @id @default(cuid())
+  noticeId   String
+  notice     Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  mimeType   String
+  size       Int
+  storedPath String?
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
   id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noticeId  String?
+  notice    Notice?  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  type      String // report_ready | analysis_failed | missing_info | deadline_7 | deadline_3 | deadline_1 | deadline_due | deadline_overdue
   title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+// One row per (user, notice, type, deadline) — the UNIQUE constraint is the
+// duplicate-prevention mechanism for deterministic reminder generation.
+model Reminder {
+  id           String   @id @default(cuid())
+  userId       String
+  noticeId     String
+  notice       Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  reminderType String // deadline_7 | deadline_3 | deadline_1 | deadline_due | deadline_overdue
+  deadlineDate DateTime
+  sentAt       DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, noticeId, reminderType, deadlineDate])
+}
+
+model ResponseDraft {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noticeId  String
+  notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  content   String
+  source    String   @default("template") // ai | template
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LawyerBrief {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noticeId  String
+  notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  content   String // JSON — Brief
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

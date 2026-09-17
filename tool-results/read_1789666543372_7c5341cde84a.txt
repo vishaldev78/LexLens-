@@ -1,0 +1,893 @@
+     1→"use client";
+     2→
+     3→import { Suspense, useEffect, useMemo, useState } from "react";
+     4→import Link from "next/link";
+     5→import { useSearchParams } from "next/navigation";
+     6→import {
+     7→  AlertTriangle,
+     8→  BellPlus,
+     9→  BookOpenCheck,
+    10→  CalendarClock,
+    11→  CheckCircle2,
+    12→  ChevronDown,
+    13→  ClipboardList,
+    14→  Copy,
+    15→  FileText,
+    16→  GitBranch,
+    17→  Info,
+    18→  ListChecks,
+    19→  Loader2,
+    20→  MessageSquareText,
+    21→  Printer,
+    22→  RotateCcw,
+    23→  Route,
+    24→  Scale,
+    25→  ShieldAlert,
+    26→  Siren,
+    27→  Upload,
+    28→  UserRound,
+    29→} from "lucide-react";
+    30→import { useLang } from "@/components/lexlens/language-provider";
+    31→import { ActionCenter, BriefView, TimelineView } from "@/components/lexlens/case-widgets";
+    32→import { ConfidenceBar, CitationChip, DeadlineCountdown, SectionCard, SourceChip, StatusBadge, WhyBox, fmtDateFor } from "@/components/lexlens/case-ui";
+    33→import { buildBrief, briefToText, buildCaseView, buildIcs, money, templateDraft } from "@/lib/lexlens/case-engine";
+    34→import { todayISO } from "@/lib/lexlens/deadline-engine";
+    35→import { getCase, loadResult, patchCase, upsertCaseFromResult, type RunResult } from "@/lib/lexlens/run-store";
+    36→import { CORPUS } from "@/lib/lexlens/corpus";
+    37→import { parseHumanDate } from "@/lib/lexlens/fallback-analyzer";
+    38→import {
+    39→  LOCALE_LABELS,
+    40→  LANGUAGE_NAMES,
+    41→  emptyUserState,
+    42→  type CaseBase,
+    43→  type Locale,
+    44→  type LocalizedBlock,
+    45→  type UploadedEvidence,
+    46→  type UserCaseState,
+    47→  type UserPosition,
+    48→} from "@/lib/lexlens/types";
+    49→
+    50→type TT = Record<string, string>;
+    51→
+    52→const POSITIONS: UserPosition[] = ["agree", "partial_dispute", "full_dispute", "already_paid", "dont_recognize", "unknown"];
+    53→
+    54→/* ───────────────────────── page ───────────────────────── */
+    55→
+    56→function ResultInner() {
+    57→  const params = useSearchParams();
+    58→  const { locale, t } = useLang();
+    59→  const id = params.get("id");
+    60→  const tt = t as unknown as TT;
+    61→
+    62→  const [record, setRecord] = useState<{ id: string | null; label: string; base: CaseBase; user: UserCaseState; noticeText: string | null } | null>(null);
+    63→  const [notFound, setNotFound] = useState(false);
+    64→  const [briefOpen, setBriefOpen] = useState(false);
+    65→  const [draftBusy, setDraftBusy] = useState(false);
+    66→  const [draftErr, setDraftErr] = useState("");
+    67→  const [showOriginal, setShowOriginal] = useState(false);
+    68→  const [copied, setCopied] = useState(false);
+    69→  const [savedFlash, setSavedFlash] = useState("");
+    70→
+    71→  useEffect(() => {
+    72→    const sr: RunResult | null = loadResult();
+    73→    if (sr?.base && (!id || sr.draft.id === id)) {
+    74→      upsertCaseFromResult(sr);
+    75→      setRecord({ id: sr.draft.id, label: sr.draft.label, base: sr.base, user: getCase(sr.draft.id)?.user ?? emptyUserState(), noticeText: sr.draft.text });
+    76→      return;
+    77→    }
+    78→    if (id) {
+    79→      const c = getCase(id);
+    80→      if (c) {
+    81→        setRecord({ id, label: c.label, base: c.base, user: c.user, noticeText: null });
+    82→        return;
+    83→      }
+    84→    }
+    85→    setNotFound(true);
+    86→  }, [id]);
+    87→
+    88→  const today = todayISO();
+    89→  const view = useMemo(
+    90→    () => (record ? buildCaseView(record.base, record.user, locale, today) : null),
+    91→    [record, locale, today]
+    92→  );
+    93→
+    94→  function mutate(patch: Partial<UserCaseState>) {
+    95→    setRecord((r) => {
+    96→      if (!r) return r;
+    97→      const user = { ...r.user, ...patch };
+    98→      if (r.id) patchCase(r.id, () => user);
+    99→      return { ...r, user };
+   100→    });
+   101→  }
+   102→
+   103→  function setInput(field: string, kind: "date" | "text" | "number", raw: string) {
+   104→    if (!raw.trim()) {
+   105→      const inputs = { ...record?.user.inputs };
+   106→      delete inputs[field];
+   107→      mutate({ inputs });
+   108→      return;
+   109→    }
+   110→    if (kind === "date") {
+   111→      const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : parseHumanDate(raw);
+   112→      if (!iso) return; // invalid dates are never stored
+   113→      mutate({ inputs: { ...record?.user.inputs, [field]: { value: raw, iso, num: null, at: Date.now() } } });
+   114→    } else if (kind === "number") {
+   115→      const num = Number(raw.replace(/[^\d.]/g, ""));
+   116→      mutate({ inputs: { ...record?.user.inputs, [field]: { value: raw, iso: null, num: Number.isFinite(num) ? num : null, at: Date.now() } } });
+   117→    } else {
+   118→      mutate({ inputs: { ...record?.user.inputs, [field]: { value: raw, iso: null, num: null, at: Date.now() } } });
+   119→    }
+   120→    setSavedFlash(field);
+   121→    setTimeout(() => setSavedFlash(""), 2500);
+   122→  }
+   123→
+   124→  function addEvidence(files: FileList | null) {
+   125→    if (!files?.length) return;
+   126→    const ups: UploadedEvidence[] = Array.from(files).map((f, i) => ({
+   127→      id: `${Date.now()}_${i}`,
+   128→      name: f.name,
+   129→      size: f.size,
+   130→      type: f.type || "file",
+   131→      addedAt: Date.now(),
+   132→    }));
+   133→    mutate({ evidence: [...(record?.user.evidence ?? []), ...ups] });
+   134→  }
+   135→
+   136→  async function generateDraft() {
+   137→    if (!record) return;
+   138→    setDraftBusy(true);
+   139→    setDraftErr("");
+   140→    try {
+   141→      const res = await fetch("/api/draft", {
+   142→        method: "POST",
+   143→        headers: { "Content-Type": "application/json" },
+   144→        body: JSON.stringify({
+   145→          notice_text: record.noticeText ?? "",
+   146→          notice_type: record.base.notice_type,
+   147→          locale,
+   148→          position: record.user.position,
+   149→          missing: view?.missing.map((m) => m.field) ?? [],
+   150→          deadline_line: view?.deadlines.find((d) => d.status === "calculated")
+   151→            ? `${view.deadlines[0].label}: ${view.deadlines[0].deadline}`
+   152→            : null,
+   153→          facts: view?.facts.filter((f) => f.value).map((f) => ({ key: f.key, value: f.value })),
+   154→        }),
+   155→      });
+   156→      const data = (await res.json()) as { draft?: string; source?: "ai" | "template"; error?: string };
+   157→      if (!data.draft) throw new Error(data.error ?? "draft failed");
+   158→      mutate({ draft: { text: data.draft, source: data.source ?? "template", at: Date.now() } });
+   159→    } catch (err) {
+   160→      const fallback = view ? templateDraft(view, locale) : "";
+   161→      if (fallback) mutate({ draft: { text: fallback, source: "template", at: Date.now() } });
+   162→      else setDraftErr(err instanceof Error ? err.message : String(err));
+   163→    } finally {
+   164→      setDraftBusy(false);
+   165→    }
+   166→  }
+   167→
+   168→  function download(name: string, content: string, mime = "text/plain") {
+   169→    const blob = new Blob([content], { type: mime });
+   170→    const url = URL.createObjectURL(blob);
+   171→    const a = document.createElement("a");
+   172→    a.href = url;
+   173→    a.download = name;
+   174→    a.click();
+   175→    URL.revokeObjectURL(url);
+   176→  }
+   177→
+   178→  function printBrief() {
+   179→    document.body.classList.add("brief-print");
+   180→    setTimeout(() => {
+   181→      window.print();
+   182→      setTimeout(() => document.body.classList.remove("brief-print"), 400);
+   183→    }, 60);
+   184→  }
+   185→
+   186→  async function copySummary() {
+   187→    if (!view) return;
+   188→    const b = record!.base.localized[locale] ?? record!.base.localized.en;
+   189→    const dl = view.deadlines.find((d) => d.status === "calculated");
+   190→    const lines = [
+   191→      "LexLens — Case summary",
+   192→      "──────────────────────────",
+   193→      b.summary,
+   194→      "",
+   195→      `${tt.ac_deadline_exact}: ${dl ? `${dl.deadline} (${dl.label})` : tt.ac_cannot_calc}`,
+   196→      "",
+   197→      `${tt.ac_next}:`,
+   198→      ...view.actions.map((a, i) => `${i + 1}. ${a.title}`),
+   199→      "",
+   200→      tt.rs_disclaimer,
+   201→    ];
+   202→    try {
+   203→      await navigator.clipboard.writeText(lines.join("\n"));
+   204→      setCopied(true);
+   205→      setTimeout(() => setCopied(false), 2000);
+   206→    } catch {
+   207→      /* clipboard blocked */
+   208→    }
+   209→  }
+   210→
+   211→  /* ── loading / not-found states ── */
+   212→  if (notFound || (!record && notFound)) {
+   213→    return (
+   214→      <div className="mx-auto max-w-xl px-4 py-20 text-center">
+   215→        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+   216→          <FileText className="h-7 w-7" />
+   217→        </span>
+   218→        <h1 className="mt-4 text-xl font-bold text-slate-900">{t.rs_notfound_t}</h1>
+   219→        <p className="mt-2 text-sm leading-relaxed text-slate-600">{t.rs_notfound_d}</p>
+   220→        <Link href="/analyze" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
+   221→          <RotateCcw className="h-4 w-4" /> {t.rs_notfound_cta}
+   222→        </Link>
+   223→      </div>
+   224→    );
+   225→  }
+   226→  if (!record || !view) {
+   227→    return (
+   228→      <div className="flex min-h-[50vh] items-center justify-center">
+   229→        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+   230→      </div>
+   231→    );
+   232→  }
+   233→
+   234→  const base = record.base;
+   235→  const sev = base.severity.level;
+   236→  const meta = view.deadlines.find((d) => d.status === "calculated");
+   237→  const brief = buildBrief(view, locale);
+   238→  const dlLabels = { noDate: t.rs_no_date, overdue: t.rs_overdue, today: t.rs_today, oneLeft: t.rs_1_day_left, daysLeft: t.rs_days_left, cs_overdue: t.cs_overdue, rdl_urgency_critical: t.rdl_urgency_critical, rdl_none: t.rdl_none, rs_days_left: t.rs_days_left };
+   239→  const typeI18n = { fs_document: t.fs_document, fs_user: t.fs_user, lb_verified: t.lb_verified, tl_calc: t.tl_calc };
+   240→  const sevMeta =
+   241→    sev === "red"
+   242→      ? { label: t.sev_red, cls: "border-red-200 bg-red-50", text: "text-red-700", dot: "bg-red-500" }
+   243→      : sev === "yellow"
+   244→        ? { label: t.sev_yellow, cls: "border-amber-200 bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" }
+   245→        : { label: t.sev_green, cls: "border-emerald-200 bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" };
+   246→
+   247→  return (
+   248→    <div className="relative">
+   249→      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-indigo-50/80 to-transparent" />
+   250→      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
+   251→        {/* header */}
+   252→        <div className="case-nobrief flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+   253→          <div>
+   254→            <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-indigo-700">
+   255→              <ClipboardList className="h-3 w-3" /> {t.rs_kicker}
+   256→            </span>
+   257→            <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">{view.type_label}</h1>
+   258→            <p className="mt-1 text-sm text-slate-500">
+   259→              {record.label} · {view.jurisdiction_label}
+   260→            </p>
+   261→          </div>
+   262→          <div className="no-print flex flex-wrap gap-2">
+   263→            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
+   264→              <Printer className="h-3.5 w-3.5" /> {t.rs_print}
+   265→            </button>
+   266→            <button onClick={() => void copySummary()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
+   267→              <Copy className="h-3.5 w-3.5" /> {copied ? t.rs_copied : t.rs_copy}
+   268→            </button>
+   269→            <Link href="/analyze" className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-700">
+   270→              <RotateCcw className="h-3.5 w-3.5" /> {t.rs_new}
+   271→            </Link>
+   272→          </div>
+   273→        </div>
+   274→
+   275→        {/* status strip */}
+   276→        <div className="case-nobrief mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+   277→          <Strip icon={Siren} label={t.rs_card_sev} value={sevMeta.label} dot={sevMeta.dot} tone={sevMeta.text} />
+   278→          <Strip icon={CalendarClock} label={t.rs_deadlines_t} value={meta ? meta.deadline! : t.ac_cannot_calc} tone={meta ? "text-slate-900" : "text-amber-700"} />
+   279→          <Strip icon={ListChecks} label={t.ms_title} value={`${view.missing.length}`} sub={view.missing.length ? t.ms_sub : t.ms_none} tone={view.missing.length ? "text-amber-700" : "text-emerald-700"} />
+   280→          <Strip icon={ShieldAlert} label={t.rs_card_conf} value={`${Math.round(base.overall_confidence * 100)}%`} sub={t.rs_engine} tone={base.overall_confidence < 0.75 ? "text-amber-700" : "text-slate-900"} />
+   281→        </div>
+   282→
+   283→        {/* banners */}
+   284→        <div className="case-nobrief mt-4 space-y-3">
+   285→          {base.overall_confidence < 0.75 && (
+   286→            <div className="flex items-start gap-3.5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+   287→              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+   288→              <div>
+   289→                <div className="text-sm font-extrabold text-amber-800">{t.rs_lowconf_t}</div>
+   290→                <p className="mt-1 text-sm leading-relaxed text-amber-800/90">{t.rs_lowconf_d}</p>
+   291→              </div>
+   292→            </div>
+   293→          )}
+   294→          {record.base && (
+   295→            <SafetyEditsNote base={record.base} tt={tt} />
+   296→          )}
+   297→        </div>
+   298→
+   299→        {/* 1 · ACTION CENTER */}
+   300→        <div className="case-nobrief mt-6">
+   301→          <ActionCenter view={view} t={tt} locale={locale} />
+   302→        </div>
+   303→
+   304→        {/* 2 · DEADLINE */}
+   305→        <div className="case-nobrief mt-5">
+   306→          <SectionCard icon={CalendarClock} title={t.rdl_title} sub={t.rdl_sub}>
+   307→            <div className="grid gap-4">
+   308→              {view.deadlines.map((d, i) => {
+   309→                const u = d.status === "calculated" ? d.days_left : null;
+   310→                return (
+   311→                  <div key={i} className={`rounded-xl border p-4 ${d.status === "calculated" ? "border-slate-200" : "border-amber-200 bg-amber-50/50"}`}>
+   312→                    <div className="flex flex-wrap items-center justify-between gap-2">
+   313→                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide ${d.status === "calculated" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-300 bg-amber-50 text-amber-700"}`}>
+   314→                        {d.status === "calculated" ? `✓ ${t.rdl_calculated}` : `⚠ ${t.rdl_missing}`}
+   315→                      </span>
+   316→                      {d.status === "calculated" && <DeadlineCountdown daysLeft={u} t={dlLabels} />}
+   317→                    </div>
+   318→                    <p className="mt-2.5 text-sm font-bold text-slate-900">{d.label}</p>
+   319→                    <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{d.description}</p>
+   320→
+   321→                    {d.status === "calculated" ? (
+   322→                      <>
+   323→                        <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+   324→                          <span className="font-mono text-2xl font-extrabold text-slate-900">{fmtDateFor(d.deadline, locale)}</span>
+   325→                          <span className="text-xs font-semibold text-slate-500">
+   326→                            {d.anchor_source === "user_input" ? t.rdl_from_user : t.rdl_from_doc}
+   327→                          </span>
+   328→                        </div>
+   329→                        <WhyBox label={t.ac_why}>
+   330→                          <span className="font-semibold">{t.rdl_method}</span>
+   331→                          <br />
+   332→                          {d.anchor_field
+   333→                            ? `${fmtDateFor(d.anchor_date, locale)} (${d.anchor_source === "user_input" ? t.tl_user : t.tl_doc}) + ${d.period_days} ${d.business_days ? "business" : ""} days`
+   334→                            : ""}
+   335→                          {d.rule_source_id && (
+   336→                            <span className="mt-1.5 block"><CitationChip sid={d.rule_source_id} /></span>
+   337→                          )}
+   338→                        </WhyBox>
+   339→                        {d.days_left !== null && d.days_left > 1 && (
+   340→                          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+   341→                            <BellPlus className="h-4 w-4 text-slate-400" />
+   342→                            <span className="text-[11px] font-semibold text-slate-500">{t.ev_upload !== undefined ? "" : ""}{t.rs_basis !== undefined ? "" : ""}</span>
+   343→                            {[7, 3, 1].map((n) => (
+   344→                              <button
+   345→                                key={n}
+   346→                                onClick={() => download(`lexlens-reminder-${n}d.ics`, buildIcs(d.deadline!, d.label, n), "text/calendar")}
+   347→                                className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+   348→                              >
+   349→                                −{n} {locale === "en" ? (n === 1 ? "day" : "days") : locale === "hi" ? "दिन" : locale === "zh" ? "天" : "jour(s)"}
+   350→                              </button>
+   351→                            ))}
+   352→                          </div>
+   353→                        )}
+   354→                      </>
+   355→                    ) : (
+   356→                      <div className="mt-3">
+   357→                        <p className="text-[13px] font-medium leading-relaxed text-amber-800">{d.missing_reason}</p>
+   358→                        {d.anchor_field && d.anchor_field !== "explicit" && (
+   359→                          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+   360→                            <input
+   361→                              type="date"
+   362→                              value={record.user.inputs[d.anchor_field]?.iso ?? ""}
+   363→                              onChange={(e) => setInput(d.anchor_field!, "date", e.target.value)}
+   364→                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+   365→                            />
+   366→                            <span className={`text-[11px] font-bold text-emerald-600 ${savedFlash === d.anchor_field ? "opacity-100" : "opacity-0"} transition-opacity`}>
+   367→                              {t.ms_added}
+   368→                            </span>
+   369→                          </div>
+   370→                        )}
+   371→                      </div>
+   372→                    )}
+   373→                  </div>
+   374→                );
+   375→              })}
+   376→              {view.deadlines.length === 0 && (
+   377→                <p className="flex items-start gap-2 text-sm text-slate-500">
+   378→                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /> {t.rdl_none}
+   379→                </p>
+   380→              )}
+   381→            </div>
+   382→          </SectionCard>
+   383→        </div>
+   384→
+   385→        {/* 3 · TIMELINE */}
+   386→        <div className="case-nobrief mt-5">
+   387→          <SectionCard icon={GitBranch} title={t.tl_title} sub={t.tl_input_required + " → " + t.ms_add}>
+   388→            <TimelineView view={view} t={tt} locale={locale} />
+   389→          </SectionCard>
+   390→        </div>
+   391→
+   392→        {/* 4 · KEY FACTS */}
+   393→        <div className="case-nobrief mt-5">
+   394→          <SectionCard icon={ListChecks} title={t.kt_title} sub={t.kt_sub}>
+   395→            <div className="grid gap-2.5">
+   396→              {view.facts.map((f) => (
+   397→                <div key={f.key} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5">
+   398→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   399→                    <div className="flex flex-wrap items-center gap-2">
+   400→                      <span className="text-sm font-bold text-slate-900">{f.label}</span>
+   401→                      {f.feeds_deadline && (
+   402→                        <span className="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-600">{t.kt_feeds}</span>
+   403→                      )}
+   404→                    </div>
+   405→                    <StatusBadge status={f.status} t={tt} />
+   406→                  </div>
+   407→                  <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+   408→                    <span className={`text-[15px] font-extrabold ${f.value ? (f.kind === "money" ? "text-indigo-700" : "text-slate-900") : "text-slate-400"}`}>
+   409→                      {f.kind === "date" && f.value ? fmtDateFor(f.value, locale) : f.value || t.kt_missing}
+   410→                    </span>
+   411→                    {f.confidence !== null && <ConfidenceBar value={f.confidence} label={t.kt_conf_med} />}
+   412→                  </div>
+   413→                  <WhyBox label={t.kt_show_why}>
+   414→                    <span className="font-semibold">{t.ac_source}:</span>{" "}
+   415→                    {f.source.kind === "user_input" ? t.fs_user : f.source.ref ?? "—"}
+   416→                    {f.confidence !== null && (
+   417→                      <span className="block text-slate-500">
+   418→                        {t.rs_card_conf}: {Math.round(f.confidence * 100)}%
+   419→                      </span>
+   420→                    )}
+   421→                  </WhyBox>
+   422→                </div>
+   423→              ))}
+   424→            </div>
+   425→          </SectionCard>
+   426→        </div>
+   427→
+   428→        {/* 5 · MISSING INFORMATION */}
+   429→        <div className="case-nobrief mt-5">
+   430→          <SectionCard
+   431→            icon={AlertTriangle}
+   432→            title={t.ms_title}
+   433→            sub={t.ms_sub}
+   434→            tone={view.missing.length ? "border-amber-200" : "border-emerald-200"}
+   435→          >
+   436→            {view.missing.length === 0 ? (
+   437→              <p className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+   438→                <CheckCircle2 className="h-4.5 w-4.5" /> {t.ms_none}
+   439→              </p>
+   440→            ) : (
+   441→              <div className="grid gap-3">
+   442→                {view.missing.map((m) => (
+   443→                  <div key={m.field} className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+   444→                    <div className="flex flex-wrap items-center justify-between gap-2">
+   445→                      <span className="text-sm font-bold text-slate-900">⚠ {m.label}</span>
+   446→                      <span className={`rounded-full border px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${
+   447→                        m.importance === "critical"
+   448→                          ? "border-red-200 bg-red-50 text-red-700"
+   449→                          : m.importance === "high"
+   450→                            ? "border-amber-200 bg-amber-50 text-amber-700"
+   451→                            : "border-slate-200 bg-slate-50 text-slate-500"
+   452→                      }`}>
+   453→                        {m.importance === "critical" ? t.ms_critical : m.importance === "high" ? t.ms_high : t.ms_medium}
+   454→                      </span>
+   455→                    </div>
+   456→                    <div className="mt-2">
+   457→                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{t.ms_why}</span>
+   458→                      <p className="mt-0.5 text-[13px] leading-relaxed text-slate-700">{m.why}</p>
+   459→                      {m.source_id && <div className="mt-1.5"><CitationChip sid={m.source_id} /></div>}
+   460→                    </div>
+   461→                    <div className="mt-3 flex flex-wrap items-center gap-2">
+   462→                      {m.input === "date" ? (
+   463→                        <input
+   464→                          type="date"
+   465→                          placeholder={t.ms_date_ph}
+   466→                          value={record.user.inputs[m.field]?.iso ?? ""}
+   467→                          onChange={(e) => setInput(m.field, "date", e.target.value)}
+   468→                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+   469→                        />
+   470→                      ) : (
+   471→                        <input
+   472→                          type={m.input === "number" ? "number" : "text"}
+   473→                          placeholder={m.input === "number" ? "0" : t.ms_text_ph}
+   474→                          value={record.user.inputs[m.field]?.value ?? ""}
+   475→                          onChange={(e) => setInput(m.field, m.input, e.target.value)}
+   476→                          className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+   477→                        />
+   478→                      )}
+   479→                      <span className={`text-[11px] font-bold text-emerald-600 transition-opacity ${savedFlash === m.field ? "opacity-100" : "opacity-0"}`}>
+   480→                        {t.ms_added}
+   481→                      </span>
+   482→                    </div>
+   483→                  </div>
+   484→                ))}
+   485→              </div>
+   486→            )}
+   487→          </SectionCard>
+   488→        </div>
+   489→
+   490→        {/* 6 · EVIDENCE */}
+   491→        <div className="case-nobrief mt-5">
+   492→          <SectionCard icon={FileText} title={t.ev_title} sub={t.ev_sub}>
+   493→            <div className="grid gap-2.5 sm:grid-cols-2">
+   494→              {view.evidence.map((e) => (
+   495→                <div key={e.key} className={`rounded-xl border p-3.5 ${e.have ? "border-emerald-200 bg-emerald-50/40" : "border-dashed border-amber-300 bg-amber-50/30"}`}>
+   496→                  <div className="flex items-start justify-between gap-2">
+   497→                    <span className="text-[13px] font-bold text-slate-900">{e.have ? "✓" : "⚠"} {e.label}</span>
+   498→                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${e.have ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+   499→                      {e.have ? t.ev_have : t.ev_missing}
+   500→                    </span>
+   501→                  </div>
+   502→                  {e.claim_link && <p className="mt-1 text-[12px] leading-relaxed text-slate-600"><span className="font-semibold">{t.ev_supports}</span> {e.claim_link}</p>}
+   503→                  {!e.from_upload && !e.have && (
+   504→                    <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800">
+   505→                      <Upload className="h-3.5 w-3.5" /> {t.ev_upload}
+   506→                      <input type="file" className="hidden" onChange={(ev) => addEvidence(ev.target.files)} />
+   507→                    </label>
+   508→                  )}
+   509→                </div>
+   510→              ))}
+   511→            </div>
+   512→            {record.user.evidence.length > 0 && (
+   513→              <p className="mt-3 text-[11px] leading-relaxed text-slate-400">{t.ev_meta_note}</p>
+   514→            )}
+   515→          </SectionCard>
+   516→        </div>
+   517→
+   518→        {/* 7 · LEGAL BASIS */}
+   519→        <div className="case-nobrief mt-5">
+   520→          <SectionCard icon={BookOpenCheck} title={t.lb_title} sub={t.lb_sub}>
+   521→            {base.citations.length === 0 ? (
+   522→              <p className="flex items-start gap-2 text-sm text-slate-500">
+   523→                <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /> {t.lb_none}
+   524→              </p>
+   525→            ) : (
+   526→              <div className="grid gap-2.5">
+   527→                {base.citations.map((c, i) => {
+   528→                  const entry = CORPUS.find((x) => x.source_id === c.source_id);
+   529→                  return (
+   530→                    <details key={i} className="group rounded-xl border border-slate-200 open:bg-indigo-50/30">
+   531→                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3.5">
+   532→                        <div className="min-w-0">
+   533→                          <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-indigo-800">
+   534→                            <BookOpenCheck className="h-4 w-4 shrink-0" />
+   535→                            {entry?.title ?? c.source_id}
+   536→                            <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-700">{t.lb_verified}</span>
+   537→                          </div>
+   538→                          <p className="mt-0.5 text-[13px] text-slate-600">{c.relevance}</p>
+   539→                        </div>
+   540→                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+   541→                      </summary>
+   542→                      {entry && <p className="border-t border-indigo-100 px-4 py-3 text-[13px] leading-relaxed text-slate-600">{entry.text}</p>}
+   543→                    </details>
+   544→                  );
+   545→                })}
+   546→              </div>
+   547→            )}
+   548→          </SectionCard>
+   549→        </div>
+   550→
+   551→        {/* 8 · WHAT HAPPENS NEXT */}
+   552→        <div className="case-nobrief mt-5">
+   553→          <SectionCard icon={Route} title={t.wn_title} sub={t.wn_sub}>
+   554→            <ol className="relative space-y-4">
+   555→              {view.consequences.map((c, i) => (
+   556→                <li key={c.key} className="relative flex gap-3.5 pb-1 last:pb-0">
+   557→                  {i < view.consequences.length - 1 && <span className="absolute left-[11px] top-6 h-[calc(100%-1.5rem)] w-0.5 bg-slate-200" aria-hidden />}
+   558→                  <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold text-white ${
+   559→                    c.tone === "danger" ? "bg-red-500" : c.tone === "warning" ? "bg-amber-500" : "bg-slate-400"
+   560→                  }`}>
+   561→                    {i + 1}
+   562→                  </span>
+   563→                  <p className="text-[13.5px] leading-relaxed text-slate-700">{c.text}</p>
+   564→                </li>
+   565→              ))}
+   566→            </ol>
+   567→          </SectionCard>
+   568→        </div>
+   569→
+   570→        {/* 9 · YOUR POSITION */}
+   571→        <div className="case-nobrief mt-5">
+   572→          <SectionCard icon={UserRound} title={t.ps_title} sub={t.ps_sub}>
+   573→            <div className="grid gap-2 sm:grid-cols-2">
+   574→              {POSITIONS.map((p) => {
+   575→                const active = record.user.position === p;
+   576→                return (
+   577→                  <button
+   578→                    key={p}
+   579→                    onClick={() => mutate({ position: p })}
+   580→                    className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-sm font-semibold transition-colors ${
+   581→                      active ? "border-indigo-400 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200" : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/40"
+   582→                    }`}
+   583→                    aria-pressed={active}
+   584→                  >
+   585→                    <span className={`flex h-4.5 w-4.5 items-center justify-center rounded-full border-2 ${active ? "border-indigo-600" : "border-slate-300"}`}>
+   586→                      {active && <span className="h-2 w-2 rounded-full bg-indigo-600" />}
+   587→                    </span>
+   588→                    {t[`ps_${p}`]}
+   589→                  </button>
+   590→                );
+   591→              })}
+   592→            </div>
+   593→            {record.user.position && <p className="mt-3 text-[12px] font-bold text-emerald-600">✓ {t.ps_saved}</p>}
+   594→          </SectionCard>
+   595→        </div>
+   596→
+   597→        {/* 10 · RESPONSE DRAFT */}
+   598→        <div className="case-nobrief mt-5">
+   599→          <SectionCard icon={MessageSquareText} title={t.rd_title} sub={t.rd_sub}>
+   600→            {!record.user.draft ? (
+   601→              <button
+   602→                onClick={() => void generateDraft()}
+   603→                disabled={draftBusy}
+   604→                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+   605→              >
+   606→                {draftBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}
+   607→                {draftBusy ? t.rd_generating : t.rd_generate}
+   608→              </button>
+   609→            ) : (
+   610→              <div>
+   611→                <div className="mb-3 flex flex-wrap items-center gap-2">
+   612→                  <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700">
+   613→                    {record.user.draft.source === "ai" ? t.rd_ai : t.rd_template}
+   614→                  </span>
+   615→                  <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">⚠ {t.rd_tag}</span>
+   616→                  <button onClick={() => void generateDraft()} disabled={draftBusy} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-60">
+   617→                    {draftBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+   618→                    {t.rd_regenerate}
+   619→                  </button>
+   620→                  <button
+   621→                    onClick={() => void navigator.clipboard.writeText(record.user.draft!.text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {})}
+   622→                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+   623→                  >
+   624→                    <Copy className="h-3.5 w-3.5" /> {copied ? t.rd_copied : t.rd_copy}
+   625→                  </button>
+   626→                  <button onClick={() => download("lexlens-response-draft.txt", record.user.draft!.text)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700">
+   627→                    <FileText className="h-3.5 w-3.5" /> {t.rd_download}
+   628→                  </button>
+   629→                </div>
+   630→                <DraftText text={record.user.draft.text} />
+   631→              </div>
+   632→            )}
+   633→            {draftErr && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700">{draftErr}</p>}
+   634→          </SectionCard>
+   635→        </div>
+   636→
+   637→        {/* 11 · LAWYER BRIEF */}
+   638→        <div className="case-nobrief mt-5">
+   639→          <SectionCard icon={Scale} title={t.br_title} sub={t.br_sub}>
+   640→            {!briefOpen ? (
+   641→              <button
+   642→                onClick={() => setBriefOpen(true)}
+   643→                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800"
+   644→              >
+   645→                <Scale className="h-4 w-4" /> {t.br_prepare}
+   646→              </button>
+   647→            ) : (
+   648→              <div>
+   649→                <div className="no-print mb-3 flex justify-end">
+   650→                  <button onClick={() => setBriefOpen(false)} className="text-[11px] font-bold text-slate-500 hover:text-slate-800">
+   651→                    {t.br_hide}
+   652→                  </button>
+   653→                </div>
+   654→                <BriefView
+   655→                  brief={brief}
+   656→                  t={tt}
+   657→                  locale={locale}
+   658→                  onPrint={printBrief}
+   659→                  onDownload={() => download("lexlens-case-brief.txt", briefToText(brief, locale))}
+   660→                />
+   661→              </div>
+   662→            )}
+   663→          </SectionCard>
+   664→        </div>
+   665→
+   666→        {/* 12 · PLAIN-LANGUAGE EXPLANATION */}
+   667→        <div className="case-nobrief mt-5">
+   668→          <PlainLanguageCard base={base} locale={locale} tt={tt} />
+   669→        </div>
+   670→
+   671→        {/* red CTA */}
+   672→        {sev === "red" && (
+   673→          <div className="case-nobrief print-card mt-5 rounded-2xl border-2 border-red-300 bg-gradient-to-br from-red-50 to-white p-5 shadow-sm">
+   674→            <div className="flex items-start gap-4">
+   675→              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600">
+   676→                <Siren className="h-5 w-5" />
+   677→              </span>
+   678→              <div>
+   679→                <h3 className="text-base font-extrabold text-red-800">{t.rs_red_t}</h3>
+   680→                <p className="mt-1 text-sm leading-relaxed text-red-700">{t.rs_red_d}</p>
+   681→              </div>
+   682→            </div>
+   683→          </div>
+   684→        )}
+   685→
+   686→        {/* report details */}
+   687→        <div className="case-nobrief mt-5">
+   688→          <ReportDetails record={record} tt={tt} locale={locale} showOriginal={showOriginal} setShowOriginal={setShowOriginal} />
+   689→        </div>
+   690→
+   691→        {/* disclaimer */}
+   692→        <div className="case-nobrief print-card mt-5 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 text-center">
+   693→          <p className="mx-auto max-w-2xl text-xs leading-relaxed text-slate-500">{t.rs_disclaimer}</p>
+   694→        </div>
+   695→      </div>
+   696→    </div>
+   697→  );
+   698→}
+   699→
+   700→/* ───────────────────────── sub-components ───────────────────────── */
+   701→
+   702→function Strip({ icon: Icon, label, value, sub, dot, tone = "text-slate-900" }: { icon: React.ElementType; label: string; value: string; sub?: string; dot?: string; tone?: string }) {
+   703→  return (
+   704→    <div className="print-card rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+   705→      <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
+   706→        <Icon className="h-3.5 w-3.5 text-indigo-500" />
+   707→        {label}
+   708→      </div>
+   709→      <div className={`mt-1 flex items-center gap-1.5 text-[13px] font-extrabold ${tone}`}>
+   710→        {dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}
+   711→        <span className="truncate">{value}</span>
+   712→      </div>
+   713→      {sub && <div className="mt-0.5 truncate text-[10.5px] text-slate-400">{sub}</div>}
+   714→    </div>
+   715→  );
+   716→}
+   717→
+   718→function SafetyEditsNote({ base, tt }: { base: CaseBase; tt: TT }) {
+   719→  const meta = loadMeta();
+   720→  const edits = meta?.safety_edits ?? [];
+   721→  if (!edits.length) return null;
+   722→  return (
+   723→    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+   724→      <summary className="cursor-pointer list-none text-[13px] font-bold text-slate-700">
+   725→        🛡 {tt.rs_safety} — {edits.length}
+   726→      </summary>
+   727→      <ul className="mt-2 space-y-1">
+   728→        {edits.map((e: string, i: number) => (
+   729→          <li key={i} className="font-mono text-[11px] text-slate-500">✓ {e}</li>
+   730→        ))}
+   731→      </ul>
+   732→    </details>
+   733→  );
+   734→}
+   735→
+   736→function loadMeta(): { safety_edits: string[]; model: string } | null {
+   737→  const sr = loadResult();
+   738→  if (sr) return { safety_edits: sr.pipeline_meta?.safety_edits ?? [], model: sr.pipeline_meta?.model ?? "" };
+   739→  return null;
+   740→}
+   741→
+   742→function DraftText({ text }: { text: string }) {
+   743→  const parts = text.split(/(\[[^\]\n]{8,90}\])/g);
+   744→  return (
+   745→    <div className="custom-scroll max-h-[480px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/70 p-4 font-legal text-[13.5px] leading-relaxed text-slate-800">
+   746→      {parts.map((p, i) =>
+   747→        /^\[[^\]\n]{8,90}\]$/.test(p) ? (
+   748→          <mark key={i} className="rounded bg-amber-100 px-1 font-sans text-[12px] font-bold text-amber-900 ring-1 ring-amber-200">
+   749→            {p}
+   750→          </mark>
+   751→        ) : (
+   752→          <span key={i}>{p}</span>
+   753→        )
+   754→      )}
+   755→    </div>
+   756→  );
+   757→}
+   758→
+   759→function PlainLanguageCard({ base, locale, tt }: { base: CaseBase; locale: Locale; tt: TT }) {
+   760→  const [viewL, setViewL] = useState<Locale>(locale);
+   761→  const block: LocalizedBlock = base.localized[viewL] ?? base.localized.en;
+   762→  const langCls = viewL === "hi" ? "lang-hi" : viewL === "zh" ? "lang-zh" : "";
+   763→  return (
+   764→    <SectionCard icon={ClipboardList} title={tt.rs_summary_t} sub={tt.rs_summary_hint}>
+   765→      <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Explanation language">
+   766→        {(["en", "hi", "zh", "fr"] as Locale[]).map((l) => (
+   767→          <button
+   768→            key={l}
+   769→            role="tab"
+   770→            aria-selected={viewL === l}
+   771→            onClick={() => setViewL(l)}
+   772→            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+   773→              viewL === l ? "bg-indigo-600 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+   774→            }`}
+   775→          >
+   776→            {LOCALE_LABELS[l].native}
+   777→          </button>
+   778→        ))}
+   779→      </div>
+   780→      <p className={`text-[15px] leading-relaxed text-slate-700 ${langCls}`}>{block.summary}</p>
+   781→      {block.key_risk && (
+   782→        <div className={`mt-5 rounded-xl border border-red-200 bg-red-50/70 p-4 ${langCls}`}>
+   783→          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-red-700">
+   784→            <Siren className="h-4 w-4" />
+   785→            {tt.rs_keyrisk_t}
+   786→          </div>
+   787→          <p className="mt-1.5 text-sm font-semibold leading-relaxed text-red-800">{block.key_risk}</p>
+   788→        </div>
+   789→      )}
+   790→      {block.rights.length > 0 && (
+   791→        <div className="mt-6">
+   792→          <h3 className={`text-sm font-bold text-slate-900 ${langCls}`}>{tt.rs_rights_t}</h3>
+   793→          <ul className={`mt-3 space-y-3 ${langCls}`}>
+   794→            {block.rights.map((r, i) => (
+   795→              <li key={i} className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3.5">
+   796→                <CheckCircle2 className="mt-0.5 h-4.5 w-4.5 shrink-0 text-emerald-500" />
+   797→                <div>
+   798→                  <span className="text-sm font-bold text-slate-800">{r.title}</span>
+   799→                  <span className="mt-0.5 block text-sm leading-relaxed text-slate-600">{r.detail}</span>
+   800→                  {r.source_id && <div className="mt-1.5"><CitationChip sid={r.source_id} /></div>}
+   801→                </div>
+   802→              </li>
+   803→            ))}
+   804→          </ul>
+   805→        </div>
+   806→      )}
+   807→      {block.next_steps.length > 0 && (
+   808→        <div className="mt-6">
+   809→          <h3 className={`text-sm font-bold text-slate-900 ${langCls}`}>
+   810→            {tt.rs_steps_t}
+   811→            <span className="ml-2 font-medium text-slate-400">{tt.rs_steps_sub}</span>
+   812→          </h3>
+   813→          <ol className="mt-3 space-y-0">
+   814→            {block.next_steps.map((s, i) => (
+   815→              <li key={i} className={`relative flex gap-3.5 pb-4 last:pb-0 ${langCls}`}>
+   816→                {i < block.next_steps.length - 1 && <span className="absolute left-[13px] top-7 h-[calc(100%-1.75rem)] w-0.5 bg-indigo-100" aria-hidden />}
+   817→                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{i + 1}</span>
+   818→                <p className="pt-1 text-sm leading-relaxed text-slate-700">{s}</p>
+   819→              </li>
+   820→            ))}
+   821→          </ol>
+   822→        </div>
+   823→      )}
+   824→    </SectionCard>
+   825→  );
+   826→}
+   827→
+   828→function ReportDetails({
+   829→  record,
+   830→  tt,
+   831→  locale,
+   832→  showOriginal,
+   833→  setShowOriginal,
+   834→}: {
+   835→  record: { id: string | null; label: string; base: CaseBase; noticeText: string | null };
+   836→  tt: TT;
+   837→  locale: Locale;
+   838→  showOriginal: boolean;
+   839→  setShowOriginal: (v: boolean) => void;
+   840→}) {
+   841→  const meta = loadMeta();
+   842→  return (
+   843→    <SectionCard icon={FileText} title={tt.rs_details_t}>
+   844→      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+   845→        {[
+   846→          [tt.rs_engine, meta?.model ?? "—"],
+   847→          [tt.rs_card_lang, LANGUAGE_NAMES[record.base.language_detected] ?? record.base.language_detected],
+   848→          [tt.rs_chars, meta ? String(Math.max(record.noticeText?.length ?? 0, 0)) : "—"],
+   849→          [tt.rs_corpus, String(CORPUS.length)],
+   850→          [tt.rs_safety, meta?.safety_edits?.length ? `${meta.safety_edits.length} ✓` : tt.rs_safety_none],
+   851→          [tt.rs_card_from, `${record.base.sender.name} (${record.base.sender.type})`],
+   852→        ].map(([k, v]) => (
+   853→          <div key={k}>
+   854→            <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{k}</dt>
+   855→            <dd className="mt-0.5 truncate font-medium text-slate-800" title={String(v)}>{v}</dd>
+   856→          </div>
+   857→        ))}
+   858→      </dl>
+   859→
+   860→      {record.noticeText && (
+   861→        <div className="mt-5 border-t border-slate-100 pt-4">
+   862→          <button onClick={() => setShowOriginal(!showOriginal)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-800">
+   863→            <ChevronDown className={`h-4 w-4 transition-transform ${showOriginal ? "rotate-180" : ""}`} />
+   864→            {tt.rs_original}
+   865→          </button>
+   866→          {showOriginal && (
+   867→            <div className="mt-3">
+   868→              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{tt.rs_original_t}</div>
+   869→              <pre className="font-legal custom-scroll max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-[13.5px] leading-relaxed text-slate-800">
+   870→                {record.noticeText}
+   871→              </pre>
+   872→            </div>
+   873→          )}
+   874→        </div>
+   875→      )}
+   876→    </SectionCard>
+   877→  );
+   878→}
+   879→
+   880→export default function ResultPage() {
+   881→  return (
+   882→    <Suspense
+   883→      fallback={
+   884→        <div className="flex min-h-[50vh] items-center justify-center">
+   885→          <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+   886→        </div>
+   887→      }
+   888→    >
+   889→      <ResultInner />
+   890→    </Suspense>
+   891→  );
+   892→}
+   893→

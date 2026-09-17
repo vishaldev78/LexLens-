@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ClipboardPaste,
   UploadCloud,
@@ -16,32 +17,124 @@ import {
   Landmark,
   Scale,
   Home,
+  CheckCircle2,
+  FileUp,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
+import { useUser } from "@/hooks/use-user";
 import { SAMPLES } from "@/lib/lexlens/samples";
 import { LOCALE_LABELS, OUTPUT_LOCALES } from "@/lib/lexlens/types";
-import { newRunId, saveDraft } from "@/lib/lexlens/run-store";
 
 type Tab = "paste" | "file" | "samples";
 
 const SAMPLE_ICONS = [Landmark, Scale, Home];
 
+const MAX_MB = 10;
+const ACCEPT_MIMES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+const ACCEPT_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
+const ACCEPT_ATTR = "application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp";
+
+interface PickedFile {
+  name: string;
+  size: number;
+  type: string;
+  file: File;
+}
+
 export default function AnalyzePage() {
-  const { t } = useLang();
+  const { t, locale } = useLang();
   const router = useRouter();
+  const { user, loading: userLoading } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>("paste");
   const [text, setText] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [fileReading, setFileReading] = useState(false);
+  const [picked, setPicked] = useState<PickedFile | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
 
-  const canStart = text.trim().length >= 40 && !starting;
+  const canStartPaste = text.trim().length >= 40 && !starting;
   const charCount = useMemo(() => text.trim().length, [text]);
 
-  function start(source: string, label: string, noticeText: string) {
+  function fmtSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function validate(f: File): string | null {
+    const ext = (f.name.toLowerCase().split(".").pop() ?? "") as string;
+    if (!ACCEPT_MIMES.has(f.type) && !ACCEPT_EXTS.has(ext)) return t.up_invalid;
+    if (f.size === 0) return t.up_empty;
+    if (f.size > MAX_MB * 1024 * 1024) return t.up_too_large.replace("{n}", String(MAX_MB));
+    return null;
+  }
+
+  function pickFile(f: File) {
+    setError(null);
+    const invalid = validate(f);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setPicked({ name: f.name, size: f.size, type: f.type || f.name.split(".").pop()?.toUpperCase() || "file", file: f });
+  }
+
+  /** Upload via XHR for real progress events. */
+  function uploadWithProgress(f: File): Promise<{ noticeId: string }> {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("file", f);
+      form.append("label", f.name);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/notices");
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100));
+      };
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText) as { notice?: { id: string }; error?: string };
+          if (xhr.status >= 200 && xhr.status < 300 && data.notice) resolve({ noticeId: data.notice.id });
+          else reject(new Error(data.error ?? t.cm_error));
+        } catch {
+          reject(new Error(t.cm_error));
+        }
+      };
+      xhr.onerror = () => reject(new Error(t.cm_error));
+      xhr.send(form);
+    });
+  }
+
+  async function createFromText(label: string, source: string, noticeText: string): Promise<string> {
+    const res = await fetch("/api/notices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: noticeText, label, source }),
+    });
+    const data = (await res.json()) as { notice?: { id: string }; error?: string };
+    if (!res.ok || !data.notice) throw new Error(data.error ?? t.cm_error);
+    return data.notice.id;
+  }
+
+  async function startWithFile() {
+    if (!picked) return;
+    setError(null);
+    setStarting(true);
+    setProgress(0);
+    try {
+      const { noticeId } = await uploadWithProgress(picked.file);
+      setProgress(100);
+      router.push(`/processing?id=${noticeId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.cm_error);
+      setStarting(false);
+      setProgress(null);
+    }
+  }
+
+  async function startWithText(source: string, label: string, noticeText: string) {
     const trimmed = noticeText.trim();
     if (trimmed.length < 40) {
       setError(t.an_need_more);
@@ -50,27 +143,12 @@ export default function AnalyzePage() {
     }
     setError(null);
     setStarting(true);
-    const id = newRunId();
-    saveDraft({ id, text: trimmed.slice(0, 12_000), source, label, createdAt: Date.now() });
-    router.push(`/processing?id=${id}`);
-  }
-
-  async function handleFile(f: File) {
-    setError(null);
-    if (f.size > 2_000_000) {
-      setError("File is larger than 2 MB.");
-      return;
-    }
-    setFileReading(true);
     try {
-      const content = await f.text();
-      setText(content);
-      setFileName(f.name);
-      setTab("paste");
-    } catch {
-      setError("Could not read this file. Try a plain .txt file.");
-    } finally {
-      setFileReading(false);
+      const id = await createFromText(label, source, trimmed.slice(0, 20_000));
+      router.push(`/processing?id=${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.cm_error);
+      setStarting(false);
     }
   }
 
@@ -79,6 +157,27 @@ export default function AnalyzePage() {
     { key: "file", label: t.an_tab_file, icon: UploadCloud },
     { key: "samples", label: t.an_tab_samples, icon: FlaskConical },
   ];
+
+  /* ── signed-out state ── */
+  if (!userLoading && !user) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-24 text-center">
+        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+          <ShieldCheck className="h-7 w-7" />
+        </span>
+        <h1 className="mt-4 text-xl font-bold text-slate-900">{t.cm_signin_required}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">{t.au_signup_sub}</p>
+        <div className="mt-6 flex flex-col justify-center gap-2.5 sm:flex-row">
+          <Link href="/login?next=%2Fanalyze" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
+            {t.nav_login}
+          </Link>
+          <Link href="/signup" className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
+            {t.nav_signup}
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative">
@@ -135,10 +234,7 @@ export default function AnalyzePage() {
                     <div className="flex items-center gap-3 text-xs text-slate-400">
                       <span>{charCount.toLocaleString()} / {t.an_chars}</span>
                       <button
-                        onClick={() => {
-                          setText("");
-                          setFileName(null);
-                        }}
+                        onClick={() => setText("")}
                         className="flex items-center gap-1 font-medium text-slate-500 hover:text-red-600"
                       >
                         <X className="h-3 w-3" /> {t.an_clear}
@@ -154,47 +250,95 @@ export default function AnalyzePage() {
                   rows={12}
                   className="font-legal custom-scroll w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-[15px] leading-relaxed text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                 />
-                {fileName && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600">
-                    <FileText className="h-3.5 w-3.5" />
-                    {t.an_file_selected}: <span className="font-semibold">{fileName}</span>
-                  </div>
-                )}
               </div>
             )}
 
             {/* ── File upload ── */}
             {tab === "file" && (
               <div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const f = e.dataTransfer.files?.[0];
-                    if (f) void handleFile(f);
-                  }}
-                  disabled={fileReading}
-                  className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 px-6 py-14 text-center transition-colors hover:border-indigo-400 hover:bg-indigo-50/40"
-                >
-                  {fileReading ? (
-                    <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-                  ) : (
+                {!picked ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) pickFile(f);
+                    }}
+                    className={`flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-14 text-center transition-colors ${
+                      dragOver ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-slate-50/50 hover:border-indigo-400 hover:bg-indigo-50/40"
+                    }`}
+                  >
                     <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
-                      <UploadCloud className="h-7 w-7" />
+                      <FileUp className="h-7 w-7" />
                     </span>
-                  )}
-                  <span className="text-sm font-semibold text-slate-700">{t.an_file_btn}</span>
-                  <span className="max-w-md text-xs leading-relaxed text-slate-500">{t.an_file_hint}</span>
-                </button>
+                    <span className="text-sm font-bold text-slate-800">{t.up_choose}</span>
+                    <span className="text-xs text-slate-500">{t.up_drop}</span>
+                    <span className="mt-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-500">
+                      {t.up_supported}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {t.up_max}: {MAX_MB} MB
+                    </span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600 ring-1 ring-emerald-200">
+                          <FileText className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                            <span className="truncate">{picked.name}</span>
+                          </div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            {t.up_selected} · {picked.type} · {fmtSize(picked.size)}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setPicked(null);
+                          setProgress(null);
+                        }}
+                        disabled={starting}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-500 disabled:opacity-40"
+                        aria-label={t.an_clear}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {progress !== null && (
+                      <div className="mt-3">
+                        <div className="h-2 overflow-hidden rounded-full bg-emerald-100">
+                          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between text-[11px] font-semibold text-emerald-700">
+                          <span>{progress < 100 ? t.up_uploading : t.up_extract}</span>
+                          <span className="font-mono">{progress}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".txt,.md,text/plain,text/markdown"
+                  accept={ACCEPT_ATTR}
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) void handleFile(f);
+                    if (f) pickFile(f);
                     e.target.value = "";
                   }}
                 />
@@ -231,8 +375,9 @@ export default function AnalyzePage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => start(s.id, s.title, s.text)}
-                          className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-indigo-700 sm:self-auto"
+                          onClick={() => void startWithText(s.id, s.title, s.text)}
+                          disabled={starting}
+                          className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 sm:self-auto"
                         >
                           {t.an_use}
                           <ArrowRight className="h-3.5 w-3.5" />
@@ -246,16 +391,33 @@ export default function AnalyzePage() {
 
             {/* Error */}
             {error && (
-              <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700">
+              <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700">
                 {error}
               </p>
             )}
 
-            {/* Start button (paste/file tabs) */}
-            {tab !== "samples" && (
+            {/* Start buttons */}
+            {tab === "file" && picked && (
               <button
-                onClick={() => start(fileName ? "file" : "paste", fileName ?? "Pasted text", text)}
-                disabled={!canStart}
+                onClick={() => void startWithFile()}
+                disabled={starting}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+              >
+                {starting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t.up_extract}
+                  </>
+                ) : (
+                  <>
+                    {t.an_start} <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            )}
+            {tab === "paste" && (
+              <button
+                onClick={() => void startWithText("paste", "Pasted text", text)}
+                disabled={!canStartPaste}
                 className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
               >
                 {starting ? (

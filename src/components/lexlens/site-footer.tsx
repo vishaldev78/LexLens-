@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Scale, ShieldAlert, Github } from "lucide-react";
+import { Scale, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useLang } from "./language-provider";
 
 export function SiteFooter() {
@@ -22,8 +22,8 @@ export function SiteFooter() {
             </div>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-600">{t.ft_tagline}</p>
             <div className="mt-4 flex items-center gap-2 text-xs font-medium text-slate-500">
-              <Github className="h-3.5 w-3.5" />
-              <span>Next.js 16 · GLM-4.6 · 9-stage safety pipeline</span>
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+              <span>{t.ft_trust}</span>
             </div>
           </div>
 

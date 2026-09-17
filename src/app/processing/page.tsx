@@ -6,8 +6,6 @@ import Link from "next/link";
 import { AlertTriangle, ArrowLeft, FileText, Loader2, RotateCcw, CheckCircle2 } from "lucide-react";
 import { Pipeline, PIPELINE_STAGE_COUNT } from "@/components/lexlens/pipeline";
 import { useLang } from "@/components/lexlens/language-provider";
-import { loadDraft, loadResult, saveResult, upsertCaseFromResult, type RunDraft, type RunResult } from "@/lib/lexlens/run-store";
-import type { AnalyzeResponse } from "@/lib/lexlens/types";
 
 const MAX_HOLD_STAGE = PIPELINE_STAGE_COUNT - 2; // hold "Checking missing information" until the response lands
 const STAGE_TICK_MS = 1300;
@@ -16,9 +14,8 @@ function ProcessingInner() {
   const { t } = useLang();
   const router = useRouter();
   const params = useSearchParams();
-  const runId = params.get("id");
+  const noticeId = params.get("id");
 
-  const [draft, setDraft] = useState<RunDraft | null>(null);
   const [phase, setPhase] = useState<"loading" | "running" | "error">("loading");
   const [stage, setStage] = useState(0);
   const [done, setDone] = useState(false);
@@ -26,55 +23,27 @@ function ProcessingInner() {
   const startedRef = useRef(false);
   const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Draft bootstrap
-  useEffect(() => {
-    const d = loadDraft();
-    if (!d) {
-      router.replace("/analyze");
-      return;
-    }
-    // Refresh after a completed run → jump straight to the existing report.
-    const existing = loadResult();
-    if (existing && existing.draft.id === d.id && runId && existing.draft.id === runId) {
-      router.replace(`/result?id=${d.id}`);
-      return;
-    }
-    setDraft(d);
-  }, [router, runId]);
-
   const runAnalysis = useCallback(
-    async (d: RunDraft) => {
+    async (id: string) => {
       setPhase("running");
       setDone(false);
       setStage(0);
       startedRef.current = true;
 
-      // Animated stage progression (held at MAX_HOLD_STAGE until the API answers)
       stageTimerRef.current = setInterval(() => {
         setStage((s) => (s < MAX_HOLD_STAGE ? s + 1 : s));
       }, STAGE_TICK_MS);
 
       try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: d.text }),
-        });
+        const res = await fetch(`/api/notices/${id}/analyze`, { method: "POST" });
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string } | null;
           throw new Error(body?.error ?? `HTTP ${res.status}`);
         }
-        const data = (await res.json()) as AnalyzeResponse;
-        if (!data.base) throw new Error(data.error ?? "empty analysis");
-
         if (stageTimerRef.current) clearInterval(stageTimerRef.current);
         setStage(PIPELINE_STAGE_COUNT - 1);
         setDone(true);
-
-        const result: RunResult = { ...data, draft: d, finishedAt: Date.now() };
-        saveResult(result);
-        upsertCaseFromResult(result);
-        setTimeout(() => router.replace(`/result?id=${d.id}`), 700);
+        setTimeout(() => router.replace(`/notices/${id}`), 700);
       } catch (err) {
         if (stageTimerRef.current) clearInterval(stageTimerRef.current);
         setPhase("error");
@@ -84,15 +53,31 @@ function ProcessingInner() {
     [router]
   );
 
-  // Kick off once per draft
   useEffect(() => {
-    if (draft && !startedRef.current && phase === "loading") {
-      void runAnalysis(draft);
+    if (!noticeId) {
+      router.replace("/analyze");
+      return;
     }
+    // Refresh-safety: if the report already exists, jump straight to it.
+    fetch(`/api/notices/${noticeId}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { base?: unknown } | null) => {
+        if (d?.base) {
+          router.replace(`/notices/${noticeId}`);
+          return;
+        }
+        if (!startedRef.current) void runAnalysis(noticeId);
+      })
+      .catch(() => {
+        if (!startedRef.current && noticeId) void runAnalysis(noticeId);
+      });
+  }, [noticeId, router, runAnalysis]);
+
+  useEffect(() => {
     return () => {
       if (stageTimerRef.current) clearInterval(stageTimerRef.current);
     };
-  }, [draft, phase, runAnalysis]);
+  }, []);
 
   const pipelineStrings = {
     titleRunning: t.pl_title_running,
@@ -115,20 +100,20 @@ function ProcessingInner() {
             <h1 className="mt-4 text-xl font-bold text-slate-900">{t.pr_err_title}</h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">{t.pr_err_sub}</p>
             {errorMsg && (
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-500">{errorMsg}</p>
+              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-500">{errorMsg}</p>
             )}
             <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
               <button
-                onClick={() => draft && void runAnalysis(draft)}
+                onClick={() => noticeId && void runAnalysis(noticeId)}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
               >
                 <RotateCcw className="h-4 w-4" /> {t.pr_retry}
               </button>
               <Link
-                href="/analyze"
+                href="/notices"
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition-colors hover:border-indigo-300 hover:text-indigo-700"
               >
-                <ArrowLeft className="h-4 w-4" /> {t.pr_change_input}
+                <ArrowLeft className="h-4 w-4" /> {t.nav_notices}
               </Link>
             </div>
           </div>
@@ -140,18 +125,6 @@ function ProcessingInner() {
               <p className="mx-auto mt-3 max-w-xl text-slate-600">{t.pr_sub}</p>
             </div>
 
-            {draft && (
-              <div className="mx-auto mt-6 flex max-w-xl flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 font-medium">
-                  <FileText className="h-3.5 w-3.5 text-indigo-500" />
-                  {draft.label}
-                </span>
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono">
-                  {draft.text.length.toLocaleString()} {t.an_chars}
-                </span>
-              </div>
-            )}
-
             <div className="mt-8">
               <Pipeline currentStage={stage} done={done} base={null} s={pipelineStrings} />
             </div>
@@ -159,7 +132,7 @@ function ProcessingInner() {
             <div className="mt-6 text-center" aria-live="polite">
               {done ? (
                 <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700">
-                  <CheckCircle2 className="h-4 w-4" /> {t.pr_ok}
+                  <CheckCircle2 className="h-4 w-4" /> {t.pr_saving}
                 </p>
               ) : (
                 <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-400">
