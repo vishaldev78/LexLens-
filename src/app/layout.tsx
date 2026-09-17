@@ -1,22 +1,24 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Poppins } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { LanguageProvider } from "@/components/lexlens/language-provider";
+import { SiteHeader } from "@/components/lexlens/site-header";
+import { SiteFooter } from "@/components/lexlens/site-footer";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Primary UI font — Poppins (user's choice). Devanagari/Chinese fall through to
+// the visitor's system fonts via the CSS stack (standard production practice).
+const poppins = Poppins({
+  variable: "--font-poppins",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "LexLens — Any legal notice. Any language. Understood in 60 seconds.",
   description:
-    "AI-powered legal notice intelligence: upload any legal notice and get a plain-language, citation-verified breakdown — sender, demands, deadlines, severity and your rights — in English, Hindi or Spanish.",
+    "AI-powered legal notice intelligence: upload any legal notice and get a plain-language, citation-verified breakdown — sender, demands, deadlines, severity and your rights — in English, Hindi, Chinese and French.",
   keywords: [
     "LexLens",
     "legal notice",
@@ -45,11 +47,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-      >
-        {children}
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
+      <body className={`${poppins.variable} antialiased bg-white text-slate-900 flex min-h-screen flex-col`}>
+        <LanguageProvider>
+          <SiteHeader />
+          <main className="flex-1">{children}</main>
+          <SiteFooter />
+        </LanguageProvider>
         <Toaster />
       </body>
     </html>

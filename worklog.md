@@ -70,3 +70,37 @@ Stage Summary:
 - All PRD P0 demo features implemented for Upload→Analysis scope; WhatsApp sim/draft letter deferred per user scope choice
 - Key decisions: stateless (no DB needed for scope), corpus-in-prompt as RAG-lite, dynamic sample dates for demo quality
 - Scripts/screenshots persisted under /home/z/my-project/scripts/
+
+---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: User-requested rebuild — Poppins/Times fonts, separate pages (upload / working / result), EN+HI+ZH+FR languages, white production UI, clear non-confusing results
+
+Work Log:
+- types.ts: Locale → en|hi|zh|fr, LocalizedTexts 4 blocks, LOCALE_LABELS with native names
+- api/analyze/route.ts: 4-language output contract (en/hi/zh/fr), transcreation rules (zh legal vocab, fr legal vocab, no stray English in non-EN blocks), lawyer-step strings in 4 languages, safety pass loops 4 locales, confidence ceiling 0.95, §138 rubric hardened (always red while unpaid), LLM budget 28.5s/28s (never hard-fails, gateway-safe), missing-locale blocks backfilled from EN
+- fallback-analyzer.ts: fully rewritten with transcreated ZH + FR content for all 4 kits (cheque/debt/eviction/generic); detectLanguage + zh/fr detection; EUR fr-FR money format; fixed num() decimal-separator bug (EUR was 2750→275000)
+- NEW ui-i18n.ts: ~150 UI keys × 4 languages (nav, home, analyze, processing, result, footer, pipeline stages) incl. pipeline stage labels + running lines in all 4
+- NEW language-provider.tsx: UI locale context, localStorage persist, html lang sync
+- NEW run-store.ts: sessionStorage draft/result passing (refresh-safe multi-page flow)
+- layout.tsx: Poppins (next/font, 400–800) as UI font; shared shell (SiteHeader/SiteFooter); globals.css: --font-sans stack w/ Devanagari+CJK system fallbacks, .font-legal (Times New Roman serif for notice text), .lang-hi/.lang-zh, print styles
+- site-header.tsx: white sticky navbar, active-link highlight, 4-language dropdown w/ flags, mobile hamburger
+- site-footer.tsx: brand, product links, information-not-advice box
+- page.tsx (/): hero w/ severity preview cards, how-it-works, 6 production features, 4-language section, notice types, CTA — all framer-motion whileInView
+- analyze/page.tsx (/analyze): tabs Paste/Upload file/Samples, .txt/.md drag-drop upload (client-side read), sample cards w/ one-click run, char counter, privacy note → saves draft → /processing?id=
+- processing/page.tsx (/processing): reads draft, animated 9-stage pipeline w/ progress bar + translated stage labels, calls API, saves result, auto-redirects to /result?id=; error card w/ retry; refresh-after-done jumps straight to result
+- result/page.tsx (/result): 6 stat cards, severity banner, low-confidence + offline-engine banners, plain-language card w/ EN/हिं/中文/FR tabs (summary, key risk, rights w/ citation chips, numbered action steps), deadline countdown chips (overdue/today/≤7d red, ≤30d amber), demands w/ localized money badges (INR en-IN grouping), expandable corpus citations, report details (engine/time/safety edits), original-notice expander in Times serif, red lawyer CTA, disclaimer, print/PDF + copy summary
+- Deleted superseded src/components/lexlens/result.tsx; pipeline.tsx props-driven (i18n labels)
+- README.md rewritten for 4-page architecture + local VS Code quick start
+
+Verification:
+- bun lint clean; tsc clean (app code); 21/21 fallback engine tests pass (scripts/test-fallback.ts)
+- API E2E: US debt → glm-4.6 21.3s, 4/4 languages OK; §138 rubric → red + conf 0.95 + in_ni_138 (scripts/test-rubric.mjs)
+- Browser E2E (agent-browser): home EN+ZH, navbar switcher persists, golden path cheque bounce (processing→result, glm-4.6), 中文 tab renders clean Chinese w/o mixed English, file upload (.txt eviction) → correct es detection + es_lau_27/es_lec_22 citations, mobile 390px viewport, /result empty state, sessionStorage refresh-safety confirmed
+- dev.log zero errors; POST /api/analyze 200 in 15.3–23.1s
+
+Stage Summary:
+- Deliverable: 4-page production app (/ , /analyze, /processing, /result) on port 3000
+- Fonts: Poppins UI + Times New Roman legal-text serif, as requested
+- Languages: interface AND analysis output in EN/HI/ZH/FR
+- Reliability: LLM (glm-4.6) with instant offline fallback — network errors eliminated; results survive refresh via sessionStorage

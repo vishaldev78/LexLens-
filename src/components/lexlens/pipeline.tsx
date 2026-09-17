@@ -15,7 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { Analysis } from "@/lib/lexlens/types";
-import { LANGUAGE_NAMES, NOTICE_TYPE_LABELS } from "@/lib/lexlens/types";
+import { LANGUAGE_NAMES } from "@/lib/lexlens/types";
 
 export interface StageMeta {
   language: string;
@@ -25,56 +25,54 @@ export interface StageMeta {
   confidence: number;
 }
 
-const STAGES: { key: string; label: string; icon: React.ElementType }[] = [
-  { key: "preprocess", label: "Preprocess input", icon: ScanLine },
-  { key: "extract", label: "Text extraction (OCR)", icon: FileText },
-  { key: "lang", label: "Language detection", icon: Languages },
-  { key: "jur", label: "Jurisdiction detection", icon: Globe2 },
-  { key: "classify", label: "Notice classification", icon: Tags },
-  { key: "entities", label: "Entity extraction", icon: ListChecks },
-  { key: "corpus", label: "Corpus retrieval", icon: BookOpenCheck },
-  { key: "safety", label: "Analysis + safety pass", icon: ShieldCheck },
-  { key: "ready", label: "Action plan ready", icon: ClipboardCheck },
+export interface PipelineStrings {
+  titleRunning: string;
+  titleDone: string;
+  labels: string[]; // 9 stage labels
+  running: string[]; // 9 running sub-lines
+}
+
+const STAGE_ICONS: React.ElementType[] = [
+  ScanLine,
+  FileText,
+  Languages,
+  Globe2,
+  Tags,
+  ListChecks,
+  BookOpenCheck,
+  ShieldCheck,
+  ClipboardCheck,
 ];
 
-function stageSub(i: number, meta: StageMeta | null, done: boolean): string {
-  if (!done) {
-    const running: Record<number, string> = {
-      0: "Normalizing characters, stripping headers…",
-      1: "Reconstructing document layout…",
-      2: "Scoring 40+ scripts & languages…",
-      3: "Matching sender, court and statute clues…",
-      4: "Mapping to notice taxonomy…",
-      5: "Extracting sender, demands, deadlines…",
-      6: "Searching jurisdiction-filtered statute corpus…",
-      7: "Verifying citations against corpus…",
-      8: "Assembling plain-language breakdown…",
-    };
-    return running[i] ?? "";
+/** Language-neutral "done" values — engine facts speak for themselves. */
+function stageDoneValue(i: number, meta: StageMeta | null): string {
+  if (!meta) return "✓";
+  switch (i) {
+    case 2:
+      return LANGUAGE_NAMES[meta.language] ?? meta.language;
+    case 3:
+      return meta.jurisdiction;
+    case 4:
+      return meta.noticeType;
+    case 6:
+      return `${meta.citations}`;
+    case 8:
+      return `${Math.round(meta.confidence * 100)}%`;
+    default:
+      return "✓";
   }
-  if (!meta) return "done";
-  const final: Record<number, string> = {
-    0: "input normalized",
-    1: "clean text layer built",
-    2: `detected: ${LANGUAGE_NAMES[meta.language] ?? meta.language}`,
-    3: meta.jurisdiction,
-    4: NOTICE_TYPE_LABELS[meta.noticeType] ?? meta.noticeType,
-    5: "structured schema filled",
-    6: `${meta.citations} statute${meta.citations === 1 ? "" : "s"} matched`,
-    7: meta.confidence < 0.75 ? "low confidence flagged" : "all citations verified",
-    8: `confidence ${(meta.confidence * 100).toFixed(0)}%`,
-  };
-  return final[i] ?? "done";
 }
 
 export function Pipeline({
   currentStage,
   done,
   analysis,
+  s,
 }: {
   currentStage: number;
   done: boolean;
   analysis: Analysis | null;
+  s: PipelineStrings;
 }) {
   const meta: StageMeta | null = analysis
     ? {
@@ -87,34 +85,41 @@ export function Pipeline({
     : null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="print-card rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
           <span className="relative flex h-2.5 w-2.5">
             {!done && (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-60"></span>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
             )}
-            <span
-              className={`relative inline-flex h-2.5 w-2.5 rounded-full ${done ? "bg-emerald-500" : "bg-indigo-500"}`}
-            ></span>
+            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${done ? "bg-emerald-500" : "bg-indigo-500"}`} />
           </span>
-          <h3 className="text-sm font-semibold tracking-wide text-slate-800">
-            {done ? "Pipeline complete" : "Analyzing your notice…"}
+          <h3 className="text-sm font-bold tracking-tight text-slate-900 sm:text-base">
+            {done ? s.titleDone : s.titleRunning}
           </h3>
         </div>
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-400">
-          {done ? "10-stage v0.9" : "10-stage pipeline"}
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[11px] font-semibold text-slate-500">
+          {done ? "9 / 9" : `${Math.min(currentStage + 1, 9)} / 9`}
         </span>
       </div>
 
+      {/* Progress bar */}
+      <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <motion.div
+          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+          initial={false}
+          animate={{ width: done ? "100%" : `${((currentStage + 1) / 9) * 100}%` }}
+          transition={{ duration: 0.4 }}
+        />
+      </div>
+
       <ol className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
-        {STAGES.map((stage, i) => {
+        {STAGE_ICONS.map((Icon, i) => {
           const isDone = done || i < currentStage;
           const isActive = !done && i === currentStage;
-          const Icon = stage.icon;
           return (
             <motion.li
-              key={stage.key}
+              key={i}
               initial={false}
               animate={{
                 opacity: isDone || isActive ? 1 : 0.45,
@@ -142,18 +147,18 @@ export function Pipeline({
               </span>
               <span className="min-w-0">
                 <span
-                  className={`block text-[13px] font-medium leading-tight ${
-                    isActive ? "font-semibold text-indigo-700" : isDone ? "text-slate-800" : "text-slate-500"
+                  className={`block truncate text-[13px] font-medium leading-tight ${
+                    isActive ? "font-bold text-indigo-700" : isDone ? "text-slate-800" : "text-slate-500"
                   }`}
                 >
-                  {stage.label}
+                  {s.labels[i]}
                 </span>
                 <span
                   className={`block truncate font-mono text-[11px] leading-tight ${
                     isActive ? "text-indigo-500" : isDone ? "text-slate-500" : "text-slate-400"
                   }`}
                 >
-                  {(isDone || isActive) && stageSub(i, meta, done)}
+                  {(isDone || isActive) && (isDone ? stageDoneValue(i, meta) : s.running[i])}
                 </span>
               </span>
               {isActive && (

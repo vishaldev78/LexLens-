@@ -50,12 +50,14 @@ export interface LocalizedBlock {
   next_steps: string[];
 }
 
-export type Locale = "en" | "hi" | "es";
+export type Locale = "en" | "hi" | "zh" | "fr";
+export const OUTPUT_LOCALES: Locale[] = ["en", "hi", "zh", "fr"];
 
 export interface LocalizedTexts {
   en: LocalizedBlock;
   hi: LocalizedBlock;
-  es: LocalizedBlock;
+  zh: LocalizedBlock;
+  fr: LocalizedBlock;
 }
 
 export interface Analysis {
@@ -92,10 +94,11 @@ export interface CorpusEntry {
   text: string;
 }
 
-export const LOCALE_LABELS: Record<Locale, { label: string; short: string }> = {
-  en: { label: "English", short: "EN" },
-  hi: { label: "हिन्दी", short: "हिं" },
-  es: { label: "Español", short: "ES" },
+export const LOCALE_LABELS: Record<Locale, { label: string; short: string; native: string }> = {
+  en: { label: "English", short: "EN", native: "English" },
+  hi: { label: "Hindi", short: "हिं", native: "हिन्दी" },
+  zh: { label: "Chinese", short: "中文", native: "中文" },
+  fr: { label: "French", short: "FR", native: "Français" },
 };
 
 export const SEVERITY_META: Record<
@@ -145,8 +148,9 @@ export const NOTICE_TYPE_LABELS: Record<string, string> = {
 export const LANGUAGE_NAMES: Record<string, string> = {
   en: "English",
   hi: "Hindi",
-  es: "Spanish",
+  zh: "Chinese",
   fr: "French",
+  es: "Spanish",
   pt: "Portuguese",
   de: "German",
   ar: "Arabic",
