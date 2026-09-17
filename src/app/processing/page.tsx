@@ -4,12 +4,12 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, FileText, Loader2, RotateCcw, CheckCircle2 } from "lucide-react";
-import { Pipeline } from "@/components/lexlens/pipeline";
+import { Pipeline, PIPELINE_STAGE_COUNT } from "@/components/lexlens/pipeline";
 import { useLang } from "@/components/lexlens/language-provider";
-import { loadDraft, loadResult, saveResult, type RunDraft } from "@/lib/lexlens/run-store";
+import { loadDraft, loadResult, saveResult, upsertCaseFromResult, type RunDraft, type RunResult } from "@/lib/lexlens/run-store";
 import type { AnalyzeResponse } from "@/lib/lexlens/types";
 
-const MAX_HOLD_STAGE = 6; // hold "Corpus retrieval" until the response lands
+const MAX_HOLD_STAGE = PIPELINE_STAGE_COUNT - 2; // hold "Checking missing information" until the response lands
 const STAGE_TICK_MS = 1300;
 
 function ProcessingInner() {
@@ -65,13 +65,15 @@ function ProcessingInner() {
           throw new Error(body?.error ?? `HTTP ${res.status}`);
         }
         const data = (await res.json()) as AnalyzeResponse;
-        if (!data.analysis) throw new Error(data.error ?? "empty analysis");
+        if (!data.base) throw new Error(data.error ?? "empty analysis");
 
         if (stageTimerRef.current) clearInterval(stageTimerRef.current);
-        setStage(8);
+        setStage(PIPELINE_STAGE_COUNT - 1);
         setDone(true);
 
-        saveResult({ ...data, draft: d, finishedAt: Date.now() });
+        const result: RunResult = { ...data, draft: d, finishedAt: Date.now() };
+        saveResult(result);
+        upsertCaseFromResult(result);
         setTimeout(() => router.replace(`/result?id=${d.id}`), 700);
       } catch (err) {
         if (stageTimerRef.current) clearInterval(stageTimerRef.current);
@@ -95,8 +97,8 @@ function ProcessingInner() {
   const pipelineStrings = {
     titleRunning: t.pl_title_running,
     titleDone: t.pl_title_done,
-    labels: [t.pl_stage_1, t.pl_stage_2, t.pl_stage_3, t.pl_stage_4, t.pl_stage_5, t.pl_stage_6, t.pl_stage_7, t.pl_stage_8, t.pl_stage_9],
-    running: [t.pl_run_1, t.pl_run_2, t.pl_run_3, t.pl_run_4, t.pl_run_5, t.pl_run_6, t.pl_run_7, t.pl_run_8, t.pl_run_9],
+    labels: [t.pl_stage_1, t.pl_stage_2, t.pl_stage_3, t.pl_stage_4, t.pl_stage_5, t.pl_stage_6],
+    running: [t.pl_run_1, t.pl_run_2, t.pl_run_3, t.pl_run_4, t.pl_run_5, t.pl_run_6],
   };
 
   return (
@@ -151,7 +153,7 @@ function ProcessingInner() {
             )}
 
             <div className="mt-8">
-              <Pipeline currentStage={stage} done={done} analysis={null} s={pipelineStrings} />
+              <Pipeline currentStage={stage} done={done} base={null} s={pipelineStrings} />
             </div>
 
             <div className="mt-6 text-center" aria-live="polite">
@@ -162,7 +164,7 @@ function ProcessingInner() {
               ) : (
                 <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-400">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="font-mono">{Math.min(stage + 1, 9)}/9</span>
+                  <span className="font-mono">{Math.min(stage + 1, 6)}/6</span>
                 </p>
               )}
             </div>

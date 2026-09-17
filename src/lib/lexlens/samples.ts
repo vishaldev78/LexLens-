@@ -132,20 +132,20 @@ Madrid, ${dES(-5)}.`;
 
 export const SAMPLES: SampleNotice[] = [
   {
-    id: "us-debt",
-    title: "Debt collection letter",
-    jurisdiction_label: "United States · New York",
-    stat_hint: "FDCPA · 15 U.S.C. §1692g",
-    words: 280,
-    text: US_DEBT,
-  },
-  {
     id: "in-cheque",
     title: "Cheque bounce legal notice",
     jurisdiction_label: "India · Maharashtra",
     stat_hint: "NI Act, 1881 · §138",
     words: 350,
     text: INDIA_CHEQUE,
+  },
+  {
+    id: "us-debt",
+    title: "Debt collection letter",
+    jurisdiction_label: "United States · New York",
+    stat_hint: "FDCPA · 15 U.S.C. §1692g",
+    words: 280,
+    text: US_DEBT,
   },
   {
     id: "es-eviction",

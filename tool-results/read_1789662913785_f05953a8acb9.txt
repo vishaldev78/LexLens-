@@ -1,0 +1,381 @@
+    60→    95→  return {
+    61→    96→    notice_type: "cheque_bounce",
+    62→    97→    severity: "red",
+    63→    98→    sender: { name: advocate, type: "law_firm" },
+    64→    99→    demands: [
+    65→   100→      {
+    66→   101→        demand: `Pay ${amtStr} (dishonoured cheque) plus interest at ~18% per annum`,
+    67→   102→        amount: amt.amount || null,
+    68→   103→        currency: amt.currency,
+    69→   104→      },
+    70→   105→    ],
+    71→   106→    deadlines: [
+    72→   107→      {
+    73→   108→        action: `Pay the full cheque amount (${amtStr}) within 15 days of receiving this notice`,
+    74→   109→        date: iso(15),
+    75→   110→        days_from_today: 15,
+    76→   111→        consequence_if_missed:
+    77→   112→          "A criminal complaint under Section 138 NI Act can be filed; punishment can be up to 2 years' imprisonment, a fine up to twice the cheque amount, or both.",
+    78→   113→        legal_basis_source_id: "in_ni_138",
+    79→   114→      },
+    80→   115→    ],
+    81→   116→    citations: [{ source_id: "in_ni_138", relevance: "Dishonour of cheque for insufficiency of funds triggers the 15-day payment window before criminal prosecution." }],
+    82→   117→    rights: rights4([
+    83→   118→      {
+    84→   119→        en: ["Right to pay within 15 days", "The notice itself gives you a 15-day window — paying the cheque amount within it completely bars the criminal complaint."],
+    85→   120→        hi: ["15 दिनों के भीतर भुगतान का अधिकार", "नोटिस मिलने के 15 दिनों के भीतर चेक राशि चुकाने पर आपराधिक शिकायत नहीं हो सकती।"],
+    86→   121→        zh: ["15天付款期内了结的权利", "通知本身就给了您15天的窗口期——在此期限内付清支票金额即可完全阻止刑事控告。"],
+    87→   122→        fr: ["Droit de payer dans les 15 jours", "L'avis vous accorde lui-même un délai de 15 jours : payer le montant du chèque dans ce délai fait totalement obstacle à la plainte pénale."],
+    88→   123→        sid: "in_ni_138",
+    89→   124→      },
+    90→   125→      {
+    91→   126→        en: ["Right to contest liability", "You may respond in writing denying liability (e.g., cheque not issued toward this debt, payment already made, or signature disputed) — the complainant must then prove the case."],
+    92→   127→        hi: ["देयता चुनौती देने का अधिकार", "आप लिखित रूप में देयता से इनकार कर सकते हैं — तब शिकायतकर्ता को अदालत में अपना मामला साबित करना होगा।"],
+    93→   128→        zh: ["对付款责任提出异议的权利", "您可以书面回复并否认付款责任（例如：支票并非用于该笔债务、款项已经支付、或签名存在争议）——此后投诉方须在法庭上证明其主张。"],
+    94→   129→        fr: ["Droit de contester la dette", "Vous pouvez répondre par écrit en contestant votre obligation de paiement (chèque non émis pour cette dette, paiement déjà effectué ou signature contestée) — le plaignant devra alors prouver son affaire devant le tribunal."],
+    95→   130→        sid: null,
+    96→   131→      },
+    97→   132→    ]),
+    98→   133→    next_steps: {
+    99→   134→      en: [
+   100→   135→        `Arrange payment of ${amtStr} before the 15-day window closes — a bank transfer with written acknowledgement works best.`,
+   101→   136→        "Keep the cheque, bank return memo and this notice together as your document set.",
+   102→   137→        "Reply to the notice in writing (keep proof of delivery), stating your position.",
+   103→   138→        "Consult a qualified lawyer immediately — this is criminal exposure, not just a civil demand.",
+   104→   139→      ],
+   105→   140→      hi: [
+   106→   141→        `15 दिनों की समा समाप्त होने से पहले ${amtStr} का भुगतान कर दें — बैंक ट्रांसफर और लिखित पावती रखें।`,
+   107→   142→        "चेक, बैंक रिटर्न मेमो और यह नोटिस — तीनों एक साथ सुरक्षित रखें।",
+   108→   143→        "नोटिस का लिखित जवाब दें (डिलीवरी का प्रमाण रखें) और अपनी स्थिति स्पष्ट करें।",
+   109→   144→        "तुरंत एक योग्य वकील से संपर्क करें — यह आपराधिक मामला हो सकता है, मात्र नागरिक मांग नहीं।",
+   110→   145→      ],
+   111→   146→      zh: [
+   112→   147→        `请在15天期限届满前安排支付${amtStr}——银行转账并保留书面回执最有保障。`,
+   113→   148→        "将支票、银行退票回单和本通知放在一起妥善保存。",
+   114→   149→        "以书面形式回复通知（保留送达证明），清楚说明您的立场。",
+   115→   150→        "请立即咨询合资格律师——这涉及刑事责任，而不仅仅是民事付款要求。",
+   116→   151→      ],
+   117→   152→      fr: [
+   118→   153→        `Organisez le paiement de ${amtStr} avant la fin du délai de 15 jours — un virement bancaire avec accusé de réception écrit est préférable.`,
+   119→   154→        "Conservez ensemble le chèque, l'attestation de rejet bancaire et cet avis.",
+   120→   155→        "Répondez à l'avis par écrit (conservez une preuve de remise) en exposant votre position.",
+   121→   156→        "Consultez immédiatement un avocat qualifié — il s'agit d'une exposition pénale, pas d'une simple demande civile.",
+   122→   157→      ],
+   123→   158→    },
+   124→   159→    summary: {
+   125→   160→      en: `This is a criminal legal notice under Section 138 of the Negotiable Instruments Act, sent by ${advocate} on behalf of ${client}. A cheque of ${amtStr} was dishonoured for insufficient funds, and you are being asked to pay the full amount plus interest within 15 days of receiving this notice. If you do not pay within those 15 days, a criminal case can be filed before the Magistrate court.`,
+   126→   161→      hi: `यह परक्राम्य लिखत अधिनियम की धारा 138 के तहत आपराधिक कानूनी नोटिस है, जो ${advocate} द्वारा ${client} की ओर से भेजा गया है। ${amtStr} का चेक फंड की कमी के कारण अनादरित हुआ है और आपसे नोटिस मिलने के 15 दिनों के भीतर ब्याज सहित पूरी राशि मांगी जा रही है। 15 दिनों में भुगतान न करने पर मजिस्ट्रेट अदालत में आपराधिक केस दर्ज हो सकता है।`,
+   127→   162→      zh: `这是一份根据印度《票据法》第138条发出的刑事法律通知，由律师 ${advocate} 代表 ${client} 发送。您开出的一张金额为 ${amtStr} 的支票因"存款不足"被银行退票，通知要求您在收到本通知后15天内支付全部款项及利息。如果15天内未付款，对方可以向治安法院提起刑事诉讼。`,
+   128→   163→      fr: `Il s'agit d'une mise en demeure à caractère pénal fondée sur l'article 138 de la loi indienne sur les instruments négociables (Negotiable Instruments Act), envoyée par ${advocate} pour le compte de ${client}. Un chèque de ${amtStr} a été retourné impayé pour insuffisance de provision, et il vous est demandé de régler le montant intégral majoré des intérêts dans les 15 jours suivant la réception de cet avis. À défaut de paiement dans ce délai, une plainte pénale peut être déposée devant le tribunal de magistrate.`,
+   129→   164→    },
+   130→   165→    key_risk: {
+   131→   166→      en: `Criminal prosecution under Section 138: up to 2 years' imprisonment or a fine up to twice the cheque amount if the 15-day window lapses unpaid.`,
+   132→   167→      hi: `धारा 138 के तहत आपराधिक अभियोजन: 15 दिनों में भुगतान न होने पर 2 साल तक की जेल या चेक राशि का दोगुना जुर्माना हो सकता है।`,
+   133→   168→      zh: `第138条项下的刑事追诉风险：若15天付款期届满仍未支付，可能面临最高2年监禁，或最高达支票金额两倍的罚金，或两者并罚。`,
+   134→   169→      fr: `Poursuite pénale au titre de l'article 138 : jusqu'à 2 ans d'emprisonnement ou une amende pouvant atteindre le double du montant du chèque si le délai de 15 jours expire sans paiement.`,
+   135→   170→    },
+   136→   171→    confidence: 0.8,
+   137→   172→  };
+   138→   173→}
+   139→   174→
+   140→   175→/* ─────────────────────────── US · FDCPA debt collection ─────────────────── */
+   141→   176→
+   142→   177→function kitDebtCollection(t: string): Kit {
+   143→   178→  const amt = findAmount(t) ?? { amount: 0, currency: "USD" };
+   144→   179→  const amtStr = amt.amount ? money(amt.amount, amt.currency) : "the claimed balance";
+   145→   180→  const collector = (t.match(/^([A-Z][A-Za-z&.,' ]{4,60}(?:LLC|LLP|Inc\.?|Agency|Systems|Associates))/m)?.[1] ?? "The collection agency").trim();
+   146→   181→  const isNY = /new york|kings county|brooklyn|queens|manhattan|bronx/i.test(t);
+   147→   182→  const deadlines: Deadline[] = [
+   148→   183→    {
+   149→   184→      action: "Dispute the debt in writing within 30 days of receiving this letter",
+   150→   185→      date: iso(30),
+   151→   186→      days_from_today: 30,
+   152→   187→      consequence_if_missed: "The collector will assume the debt is valid and may proceed without further validation.",
+   153→   188→      legal_basis_source_id: "fdcpa_1692g",
+   154→   189→    },
+   155→   190→    {
+   156→   191→      action: "Resolve the debt before the threatened referral date (~45 days)",
+   157→   192→      date: iso(45),
+   158→   193→      days_from_today: 45,
+   159→   194→      consequence_if_missed: "The matter may be referred to court; a money judgment can be entered and enforced through wage garnishment or bank levy.",
+   160→   195→      legal_basis_source_id: isNY ? "ny_cplr_320" : null,
+   161→   196→    },
+   162→   197→  ];
+   163→   198→  const citations: Analysis["citations"] = [{ source_id: "fdcpa_1692g", relevance: "Gives you the 30-day written dispute and validation right referenced in the letter." }];
+   164→   199→  if (isNY) citations.push({ source_id: "ny_cplr_320", relevance: "Explains the default-judgment risk the letter threatens in New York courts." });
+   165→   200→  const rights = rights4([
+   166→   201→    {
+   167→   202→      en: ["30-day validation right", "Disputing in writing within 30 days forces the collector to stop collection until it mails verification of the debt."],
+   168→   203→      hi: ["30-दिन का सत्यापन अधिकार", "30 दिनों के भीतर लिखित विवाद करने पर कलेक्टर को सत्यापन भेजने तक वसूली रोकनी होगी।"],
+   169→   204→      zh: ["30天债务核实权", "在30天内以书面形式提出争议，可迫使催收机构在寄出债务核实材料之前暂停催收。"],
+   170→   205→      fr: ["Droit de validation de 30 jours", "Contester par écrit dans les 30 jours oblige le recouvreur à suspendre ses démarches jusqu'à l'envoi de la vérification de la dette."],
+   171→   206→      sid: "fdcpa_1692g",
+   172→   207→    },
+   173→   208→    {
+   174→   209→      en: ["Protection from false threats", "Collectors may not threaten court action they do not intend or are not permitted to take."],
+   175→   210→      hi: ["झूठी धमकियों से सुरक्षा", "कलेक्टर ऐसी अदालती कार्रवाई की धमकी नहीं दे सकता जिसका इरादा या अधिकार नहीं है।"],
+   176→   211→      zh: ["免受虚假威胁的保护", "催收机构不得威胁采取其无意进行或无权进行的法律行动。"],
+   177→   212→      fr: ["Protection contre les menaces fallacieuses", "Un recouvreur ne peut menacer d'une action en justice qu'il n'a pas l'intention ou le droit d'engager."],
+   178→   213→      sid: "fdcpa_1692e",
+   179→   214→    },
+   180→   215→  ]);
+   181→   216→  return {
+   182→   217→    notice_type: "debt_collection",
+   183→   218→    severity: "yellow",
+   184→   219→    sender: { name: collector, type: "debt_collector" },
+   185→   220→    demands: [
+   186→   221→      { demand: `Pay the claimed credit-card balance of ${amtStr}`, amount: amt.amount || null, currency: amt.currency },
+   187→   222→      { demand: `Or accept a settlement offer (~70% of balance)`, amount: amt.amount ? Math.round(amt.amount * 0.7 * 100) / 100 : null, currency: amt.currency },
+   188→   223→    ],
+   189→   224→    deadlines,
+   190→   225→    citations,
+   191→   226→    rights,
+   192→   227→    next_steps: {
+   193→   228→      en: [
+   194→   229→        "Check your records for this account — verify the amount and that the debt is really yours.",
+   195→   230→        "If anything is wrong, send a written dispute within 30 days (keep proof of mailing).",
+   196→   231→        "Request debt validation and the original creditor's details in the same letter.",
+   197→   232→        "Consult a qualified lawyer before the threatened court referral if you cannot resolve it.",
+   198→   233→      ],
+   199→   234→      hi: [
+   200→   235→        "अपने रिकॉर्ड में इस खाते की जाँच करें — राशि और देयता सत्यापित करें।",
+   201→   236→        "कुछ भी गलत होने पर 30 दिनों के भीतर लिखित विवाद (dispute) भेजें — डाक प्रमाण रखें।",
+   202→   237→        "उसी पत्र में डेट सत्यापन और मूल लेनदार का विवरण मांगें।",
+   203→   238→        "मामला हल न होने पर अदालत रेफरल से पहले तुरंत एक योग्य वकील से संपर्क करें।",
+   204→   239→      ],
+   205→   240→      zh: [
+   206→   241→        "核对您自己的账户记录——确认金额无误，且该债务确实属于您。",
+   207→   242→        "如发现任何问题，请在30天内发出书面争议函（保留邮寄凭证）。",
+   208→   243→        "在同一封信中要求对方提供债务核实材料及原始债权人的信息。",
+   209→   244→        "若无法在法院移交前解决，请咨询合资格律师。",
+   210→   245→      ],
+   211→   246→      fr: [
+   212→   247→        "Vérifiez vos propres relevés pour ce compte — contrôlez le montant et l'existence réelle de la dette.",
+   213→   248→        "Si quelque chose cloche, envoyez une contestation écrite dans les 30 jours (conservez la preuve d'envoi).",
+   214→   249→        "Demandez dans la même lettre la validation de la dette et l'identité du créancier initial.",
+   215→   250→        "Consultez un avocat qualifié avant l'éventuel renvoi en justice si vous ne pouvez pas régler le litige.",
+   216→   251→      ],
+   217→   252→    },
+   218→   253→    summary: {
+   219→   254→      en: `${collector}, a debt collector, is demanding ${amtStr} for a credit card account. You have 30 days from receiving this letter to dispute the debt in writing and demand validation. The letter threatens a court referral within 45 days, which could end in a money judgment and wage garnishment if you do nothing.`,
+   220→   255→      hi: `${collector} नामक डेट कलेक्टर एक क्रेडिट कार्ड खाते के लिए ${amtStr} की मांग कर रहा है। इस पत्र मिलने के 30 दिनों के भीतर आप लिखित रूप में इस डेट को चुनौती देकर सत्यापन मांग सकते हैं। पत्र में 45 दिनों के भीतर अदालत जाने की धमकी है — कुछ न करने पर जज्मत और वेतन कटौती हो सकती है।`,
+   221→   256→      zh: `${collector} 是一家债务催收机构，正就一个信用卡账户要求您支付 ${amtStr}。自收到本函之日起30天内，您有权以书面形式对该债务提出异议并要求核实。信函威胁在45天内将案件移交法院——若您不采取任何行动，可能导致败诉判决和工资扣划。`,
+   222→   257→      fr: `${collector}, une société de recouvrement, réclame ${amtStr} au titre d'un compte de carte de crédit. Vous disposez de 30 jours à compter de la réception de cette lettre pour contester la dette par écrit et exiger sa validation. La lettre menace d'un renvoi devant le tribunal sous 45 jours, ce qui peut aboutir à un jugement condamnant au paiement et à une saisie sur salaire en cas d'inaction.`,
+   223→   258→    },
+   224→   259→    key_risk: {
+   225→   260→      en: "Ignoring the 30/45-day windows can end in a default judgment with wage garnishment.",
+   226→   261→      hi: "30/45 दिनों की समा नजरअंदाज करने पर डिफॉल्ट जज्मत और वेतन कटौती हो सकती है।",
+   227→   262→      zh: "若忽视30/45天的期限，可能面临败诉判决并被工资扣划。",
+   228→   263→      fr: "Ignorer les délais de 30/45 jours peut aboutir à un jugement par défaut avec saisie sur salaire.",
+   229→   264→    },
+   230→   265→    confidence: 0.8,
+   231→   266→  };
+   232→   267→}
+   233→   268→
+   234→   269→/* ─────────────────────────── Spain · LAU eviction demand ─────────────────── */
+   235→   270→
+   236→   271→function kitEviction(t: string): Kit {
+   237→   272→  const amt = findAmount(t) ?? { amount: 0, currency: "EUR" };
+   238→   273→  const amtStr = amt.amount ? money(amt.amount, amt.currency) : "the unpaid rent";
+   239→   274→  const landlord = (t.match(/D\.ª?\s+([A-ZÁÉÍÓÚ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚ][a-záéíóúñ]+)+),?\s+en calidad de arrendador/)?.[1] ?? "The landlord").trim();
+   240→   275→  return {
+   241→   276→    notice_type: "eviction",
+   242→   277→    severity: "red",
+   243→   278→    sender: { name: landlord, type: "landlord" },
+   244→   279→    demands: [
+   245→   280→      { demand: `Pay the unpaid rent claimed (${amtStr}) to undo the non-payment`, amount: amt.amount || null, currency: amt.currency },
+   246→   281→      { demand: "Vacate the property if the non-payment is not undone (landlord may file for eviction)", amount: null, currency: null },
+   247→   282→    ],
+   248→   283→    deadlines: [
+   249→   284→      {
+   250→   285→        action: "Pay all rent owed before the landlord files the eviction suit",
+   251→   286→        date: null,
+   252→   287→        days_from_today: null,
+   253→   288→        consequence_if_missed: "Under LAU art. 27.2.a the landlord can terminate the lease and file for eviction (desahucio por impago).",
+   254→   289→        legal_basis_source_id: "es_lau_27",
+   255→   290→      },
+   256→   291→      {
+   257→   292→        action: "If sued: pay everything owed within 10 business days of court notification (enervación)",
+   258→   293→        date: iso(10),
+   259→   294→        days_from_today: 10,
+   260→   295→        consequence_if_missed: "The eviction proceeds and a date for vacating the property will be set.",
+   261→   296→        legal_basis_source_id: "es_lec_22",
+   262→   297→      },
+   263→   298→    ],
+   264→   299→    citations: [
+   265→   300→      { source_id: "es_lau_27", relevance: "Non-payment entitles the landlord to terminate the lease and demand eviction." },
+   266→   301→      { source_id: "es_lec_22", relevance: "First-time enervación: paying all arrears within 10 business days of the court notification stops the eviction." },
+   267→   302→    ],
+   268→   303→    rights: rights4([
+   269→   304→      {
+   270→   305→        en: ["Right to stop the eviction by paying (enervación)", "As this is the first eviction demand, paying every amount owed within 10 business days of the court notification stops the eviction."],
+   271→   306→        hi: ["भुगतान करके बेदखली रोकने का अधिकार (enervación)", "यह पहली मांग है — अदालती सूचना के 10 कार्यदिवसों में पूरी बकाया चुकाने पर बेदखली रुक सकती है।"],
+   272→   307→        zh: ["通过付款阻止驱逐的权利（enervación）", "由于这是第一次驱逐主张，在法院通知后10个工作日内付清全部欠款即可阻止驱逐。"],
+   273→   308→        fr: ["Droit d'« enervación » : arrêter l'expulsion en payant", "S'agissant d'une première demande, le paiement de la totalité des sommes dues dans les 10 jours ouvrables suivant la notification judiciaire arrête l'expulsion."],
+   274→   309→        sid: "es_lec_22",
+   275→   310→      },
+   276→   311→      {
+   277→   312→        en: ["Right to a court process first", "The landlord cannot remove you without a court order; a notarial demand is a warning, not an eviction."],
+   278→   313→        hi: ["पहले अदालती प्रक्रिया का अधिकार", "बिना अदालती आदेश मकान मालिक आपको निकाल नहीं सकता; नोटरी नोटिस चेतावनी है, बेदखली नहीं।"],
+   279→   314→        zh: ["先经法院程序的权利", "没有法院命令，房东不能将您逐出住所；公证催告只是警告，并非驱逐。"],
+   280→   315→        fr: ["Droit à une procédure judiciaire préalable", "Le bailleur ne peut vous expulser sans décision de justice ; un commandement notarial est un avertissement, pas une expulsion."],
+   281→   316→        sid: null,
+   282→   317→      },
+   283→   318→    ]),
+   284→   319→    next_steps: {
+   285→   320→      en: [
+   286→   321→        `Gather the funds to pay the full arrears (${amtStr}) as early as possible — payment before any lawsuit avoids court costs.`,
+   287→   322→        "Request a written receipt and confirm the landlord accepts the payment in full settlement of the arrears.",
+   288→   323→        "If you cannot pay in full, consult a qualified lawyer immediately — and check whether local tenant-assistance schemes apply.",
+   289→   324→        "Do not ignore any court notification: the 10-day enervación window only opens once you are notified.",
+   290→   325→      ],
+   291→   326→      hi: [
+   292→   327→        `पूरी बकाया (${amtStr}) जल्द से जल्द चुकाने की व्यवस्था करें — मुकदमा दायर होने से पहले भुगतान करने पर अदालती खर्च बचता है।`,
+   293→   328→        "लिखित पावती लें और पुष्टि करें कि मकान मालिक ने पूरी बकाया का भुगतान स्वीकार किया है।",
+   294→   329→        "पूरा भुगतान न कर सकने पर तुरंत एक योग्य वकील से संपर्क करें — और स्थानीय किरायेदार सहायता योजनाएँ जाँचें।",
+   295→   330→        "किसी भी अदालती सूचना को नजरअंदाज न करें: 10 दिनों का enervación विंडो सूचना मिलने पर ही खुलता है।",
+   296→   331→      ],
+   297→   332→      zh: [
+   298→   333→        `尽早筹措资金付清全部欠款（${amtStr}）——在对方起诉之前付款可避免诉讼费用。`,
+   299→   334→        "索取书面收据，并确认房东接受该笔付款作为全部欠款的清偿。",
+   300→   335→        "如无法全额支付，请立即咨询合资格律师——并查询当地租客援助计划是否适用。",
+   301→   336→        "切勿忽视任何法院通知：10个工作日的 enervación 期限自您收到通知时才起算。",
+   302→   337→      ],
+   303→   338→      fr: [
+   304→   339→        `Réunissez les fonds pour régler la totalité des arriérés (${amtStr}) dès que possible — payer avant toute assignation évite les dépens.`,
+   305→   340→        "Exigez un reçu écrit et confirmez que le bailleur accepte le paiement en règlement total des sommes dues.",
+   306→   341→        "Si vous ne pouvez pas payer intégralement, consultez immédiatement un avocat qualifié et renseignez-vous sur les dispositifs locaux d'aide aux locataires.",
+   307→   342→        "N'ignorez aucune notification judiciaire : le délai d'enervación de 10 jours ne court qu'à compter de votre signification.",
+   308→   343→      ],
+   309→   344→    },
+   310→   345→    summary: {
+   311→   346→      en: `This is a notarial payment demand from your landlord, ${landlord}, claiming ${amtStr} in unpaid rent. Under Spain's urban lease law (LAU), continued non-payment lets the landlord terminate the lease and file an eviction suit (desahucio). Because this would be a first eviction claim, you would still be able to stop it by paying everything owed within 10 business days of the court notification (enervación).`,
+   312→   347→      hi: `यह आपके मकान मालिक ${landlord} की ओर से नोटरी के जरिए भेजी गई भुगतान मांग है, जिसमें ${amtStr} की अदत्त किराया बकाया है। स्पेन के LAU कानून के तहत, भुगतान जारी रहने पर मकान मालिक अनुबंध समाप्त कर बेदखली (desahucio) का मुकदमा दायर कर सकता है। चूंकि यह पहली बेदखली मांग है, अदालती सूचना के 10 कार्यदिवसों में पूरी बकाया चुकाकर आप इसे रोक सकते हैं (enervación)।`,
+   313→   348→      zh: `这是您的房东 ${landlord} 通过公证人发出的付款催告，主张 ${amtStr} 的未付租金。根据西班牙《城市租赁法》（LAU），持续欠租使房东有权解除租约并提起驱逐诉讼（desahucio）。由于这将是第一次驱逐主张，您仍可在法院通知后10个工作日内付清全部欠款来阻止驱逐（enervación）。`,
+   314→   349→      fr: `Il s'agit d'un commandement de payer délivré par notaire par votre bailleur, ${landlord}, qui réclame ${amtStr} de loyers impayés. En vertu de la loi espagnole sur les baux urbains (LAU), le défaut de paiement persistant permet au bailleur de résilier le bail et d'intenter une action en expulsion (desahucio). S'agissant d'une première demande de ce type, vous pourriez encore l'arrêter en réglant la totalité des sommes dues dans les 10 jours ouvrables suivant la notification judiciaire (enervación).`,
+   315→   350→    },
+   316→   351→    key_risk: {
+   317→   352→      en: "Your home is at risk: an eviction suit ends your tenancy — only fast payment (or the 10-day enervación window) stops it.",
+   318→   353→      hi: "आपका घर खतरे में है: बेदखली मुकदमा किराया खत्म कर देगा — केवल तेज़ भुगतान (या 10 दिनों की enervación अवधि) ही इसे रोक सकता है।",
+   319→   354→      zh: "您的住所面临风险：驱逐诉讼将终止您的租赁关系——只有尽快付款（或利用10个工作日的 enervación 期限）才能阻止。",
+   320→   355→      fr: "Votre logement est menacé : une action en expulsion met fin au bail — seul un paiement rapide (ou le délai d'enervación de 10 jours) peut l'arrêter.",
+   321→   356→    },
+   322→   357→    confidence: 0.8,
+   323→   358→  };
+   324→   359→}
+   325→   360→
+   326→   361→/* ─────────────────────────── Generic / unknown ─────────────────── */
+   327→   362→
+   328→   363→function kitGeneric(t: string): Kit {
+   329→   364→  const amt = findAmount(t);
+   330→   365→  const amtStr = amt ? money(amt.amount, amt.currency) : "an amount";
+   331→   366→  return {
+   332→   367→    notice_type: "other",
+   333→   368→    severity: "yellow",
+   334→   369→    sender: { name: "Unknown sender", type: "unknown" },
+   335→   370→    demands: [{ demand: "The notice requests some action — verify the exact demand in the text.", amount: amt?.amount ?? null, currency: amt?.currency ?? null }],
+   336→   371→    deadlines: [],
+   337→   372→    citations: [],
+   338→   373→    rights: rights4([
+   339→   374→      {
+   340→   375→        en: ["Right to verify before responding", "You are never obliged to respond on the spot. Verify the sender, the claim and the deadline with official sources first."],
+   341→   376→        hi: ["जवाब देने से पहले सत्यापन का अधिकार", "तुरंत जवाब देने की कोई बाध्यता नहीं है। पहले प्रेषक, दावा और समा-सीमा आधिकारिक स्रोतों से जाँचें।"],
+   342→   377→        zh: ["回复前先行核实的权利", "您绝无义务立即回复。请先通过官方来源核实寄件人身份、对方主张和期限。"],
+   343→   378→        fr: ["Droit de vérifier avant de répondre", "Vous n'êtes jamais obligé de répondre immédiatement. Vérifiez d'abord l'expéditeur, la réclamation et le délai auprès de sources officielles."],
+   344→   379→        sid: null,
+   345→   380→      },
+   346→   381→    ]),
+   347→   382→    next_steps: {
+   348→   383→      en: [
+   349→   384→        "Identify the sender and verify the claim against your own records.",
+   350→   385→        "Note any date or deadline mentioned and diarise it immediately.",
+   351→   386→        "Gather related documents (contracts, receipts, emails) before responding.",
+   352→   387→        "Consult a qualified lawyer if money, property or legal proceedings are mentioned.",
+   353→   388→      ],
+   354→   389→      hi: [
+   355→   390→        "प्रेषक की पहचान करें और अपने रिकॉर्ड से दावे की जाँच करें।",
+   356→   391→        "उल्लिखित कोई भी तारीख या समा-सीमा तुरंत नोट करें।",
+   357→   392→        "जवाब देने से पहले संबंधित दस्तावेज़ (अनुबंध, रसीदें, ईमेल) इकट्ठा करें।",
+   358→   393→        "धन, संपत्ति या कानूनी कार्यवाही का उल्लेख हो तो एक योग्य वकील से संपर्क करें।",
+   359→   394→      ],
+   360→   395→      zh: [
+   361→   396→        "查明寄件人身份，并对照您自己的记录核实对方主张。",
+   362→   397→        "记下文中提到的任何日期或期限，并立即登记在案。",
+   363→   398→        "回复之前收集相关文件（合同、收据、电子邮件）。",
+   364→   399→        "如涉及金钱、财产或法律程序，请咨询合资格律师。",
+   365→   400→      ],
+   366→   401→      fr: [
+   367→   402→        "Identifiez l'expéditeur et vérifiez la réclamation au regard de vos propres documents.",
+   368→   403→        "Notez immédiatement toute date ou tout délai mentionné et inscrivez-le dans votre agenda.",
+   369→   404→        "Rassemblez les documents pertinents (contrats, reçus, e-mails) avant de répondre.",
+   370→   405→        "Consultez un avocat qualifié si de l'argent, un bien ou une procédure judiciaire est mentionné.",
+   371→   406→      ],
+   372→   407→    },
+   373→   408→    summary: {
+   374→   409→      en: `This appears to be a formal legal notice, but the offline demo engine could not match it to a supported category (debt collection, cheque bounce, or eviction). It references ${amtStr} and possibly a deadline. Read the original carefully and treat any date mentioned as important.`,
+   375→   410→      hi: `यह एक औपचारिक कानूनी नोटिस प्रतीत होता है, लेकिन ऑफलाइन डेमो इंजन इसे समर्थित श्रेणी (डेट कलेक्शन, चेक अनादरण या बेदखली) से मेल नहीं खा पाया। इसमें ${amtStr} और संभवतः कोई समा-सीमा का उल्लेख है। मूल दस्तावेज़ ध्यान से पढ़ें और उल्लिखित हर तारीख को महत्वपूर्ण मानें।`,
+   376→   411→      zh: `这似乎是一份正式的法律通知，但离线演示引擎未能将其归入受支持的类别（债务催收、支票退票或驱逐）。文中提及 ${amtStr}，并可能涉及某个期限。请仔细阅读原件，并将文中提及的任何日期都视为重要。`,
+   377→   412→      fr: `Il semble s'agir d'une mise en demeure formelle, mais le moteur de démonstration hors ligne n'a pas pu la classer dans une catégorie prise en charge (recouvrement de créances, chèque impayé ou expulsion). Elle mentionne ${amtStr} et possiblement un délai. Lisez l'original avec attention et traitez toute date mentionnée comme importante.`,
+   378→   413→    },
+   379→   414→    key_risk: {
+   380→   415→      en: "Unclassified notice: a missed deadline cannot be ruled out — verify the dates in the text today.",
+   381→   416→      hi: "अवर्गीकृत नोटिस: समा छूटने की संभावना खारिज नहीं की जा सकती — आज ही दस्तावेज़ की तारीखें जाँचें।",
+   382→   417→      zh: "未分类通知：无法排除错过期限的可能——请今天就核实文中的日期。",
+   383→   418→      fr: "Avis non classé : un délai manqué ne peut être exclu — vérifiez dès aujourd'hui les dates figurant dans le document.",
+   384→   419→    },
+   385→   420→    confidence: 0.55,
+   386→   421→  };
+   387→   422→}
+   388→   423→
+   389→   424→/* ─────────────────────────── dispatcher ─────────────────── */
+   390→   425→
+   391→   426→export function offlineAnalyze(text: string): Analysis {
+   392→   427→  const isCheque = /section\s*138|negotiable\s*instruments|cheque|checque|dishonou?r/i.test(text);
+   393→   428→  const isDebt = /debt\s*collect|fdcpa|collect(?:ion)?\s+agency|attempt\s+to\s+collect\s+a\s+debt|validation\s+of\s+the\s+debt|this\s+is\s+an\s+attempt/i.test(text);
+   394→   429→  const isEviction = /desahuci|arrendatari|arrendador|renta\s+devengada|requerimiento\s+notarial|eviction\s+notice|notice\s+to\s+quit|lau\b/i.test(text);
+   395→   430→
+   396→   431→  let kit: Kit;
+   397→   432→  let jurisdiction: Analysis["jurisdiction"];
+   398→   433→  let lang: string;
+   399→   434→
+   400→   435→  if (isCheque && /rs\.|₹|india|mumbai|magistrate|hdfc|sbi|icici/i.test(text)) {
+   401→   436→    kit = kitChequeBounce(text);
+   402→   437→    jurisdiction = { country: "IN", region: /mumbai|maharashtra/i.test(text) ? "Maharashtra" : "India", confidence: 0.85 };
+   403→   438→    lang = /[\u0900-\u097F]/.test(text) ? "hi" : "en";
+   404→   439→  } else if (isDebt || (isCheque && /\$/i.test(text))) {
+   405→   440→    kit = kitDebtCollection(text);
+   406→   441→    const state = /new york|brooklyn|kings county/i.test(text) ? "New York" : /california/i.test(text) ? "California" : /texas/i.test(text) ? "Texas" : "Federal";
+   407→   442→    jurisdiction = { country: "US", region: state, confidence: 0.85 };
+   408→   443→    lang = "en";
+   409→   444→  } else if (isEviction) {
+   410→   445→    kit = kitEviction(text);
+   411→   446→    jurisdiction = { country: "ES", region: /madrid/i.test(text) ? "Madrid" : /barcelona|cataluña/i.test(text) ? "Cataluña" : "Spain", confidence: 0.82 };
+   412→   447→    lang = "es";
+   413→   448→  } else {
+   414→   449→    kit = kitGeneric(text);
+   415→   450→    const l = detectLanguage(text);
+   416→   451→    lang = l;
+   417→   452→    jurisdiction = { country: "XX", region: "Unresolved", confidence: 0.4 };
+   418→   453→  }
+   419→   454→
+   420→   455→  const block = (loc: Locale): LocalizedBlock => ({
+   421→   456→    summary: kit.summary[loc],
+   422→   457→    key_risk: kit.key_risk[loc],
+   423→   458→    rights: kit.rights[loc],
+   424→   459→    next_steps: kit.next_steps[loc],
+   425→   460→  });
+   426→   461→
+   427→   462→  return {
+   428→   463→    notice_type: kit.notice_type,
+   429→   464→    jurisdiction,
+   430→   465→    language_detected: lang,
+   431→   466→    sender: kit.sender,
+   432→   467→    demands: kit.demands,
+   433→   468→    deadlines: kit.deadlines,
+   434→   469→    severity: { level: kit.severity, confidence: 0.75 },
+   435→   470→    citations: kit.citations,
+   436→   471→    localized: { en: block("en"), hi: block("hi"), zh: block("zh"), fr: block("fr") },
+   437→   472→    overall_confidence: kit.confidence,
+   438→   473→  };
+   439→   474→}
+   440→   475→

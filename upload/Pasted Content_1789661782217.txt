@@ -1,0 +1,1632 @@
+You are a senior full-stack engineer, product engineer, AI engineer, and legal-tech UX architect.
+
+You are working on my EXISTING LexLens project.
+
+IMPORTANT:
+- Do NOT rebuild the project from scratch.
+- First inspect the entire existing codebase and understand the current architecture, routes, components, database, API layer, AI pipeline, prompts, OCR flow, existing analysis report, and styling.
+- Preserve the existing working functionality.
+- Make incremental, production-quality changes.
+- Do not remove existing features unless they conflict with the requirements below.
+- Reuse existing components, utilities, APIs, database models, and styling wherever possible.
+- Do not create duplicate implementations of existing functionality.
+- Before modifying files, identify where each change belongs.
+- After implementation, run the project, test the critical flows, fix errors, and verify that the existing application still works.
+
+==================================================
+PRODUCT DIRECTION
+==================================================
+
+LexLens should NOT be positioned as:
+
+"Upload a legal notice and ChatGPT explains it."
+
+That is too easy to replicate with a general AI model.
+
+LexLens should become:
+
+"An evidence-backed legal notice action engine that converts an unstructured legal notice into verified facts, missing information, a legal timeline, deadline tracking, prioritized actions, and a lawyer-ready case brief."
+
+Core product promise:
+
+FROM:
+Long legal notice / PDF / image
+
+TO:
+1. Important facts
+2. Missing information
+3. Verified legal provisions
+4. Timeline
+5. Deadline
+6. What to do now
+7. Evidence checklist
+8. Lawyer-ready brief
+
+The application must prioritize ACTION over generic explanation.
+
+==================================================
+CORE UX PRINCIPLE
+==================================================
+
+The first screen after analysis should NOT primarily be a long AI explanation.
+
+The first thing the user should understand is:
+
+"What do I need to do now?"
+
+The analysis result should therefore be organized approximately as:
+
+1. ACTION CENTER
+2. DEADLINE / TIMELINE
+3. KEY FACTS
+4. MISSING INFORMATION
+5. LEGAL BASIS / SOURCES
+6. EVIDENCE CHECKLIST
+7. WHAT HAPPENS NEXT
+8. RESPONSE DRAFT
+9. LAWYER HANDOFF
+10. FULL EXPLANATION
+
+Generic plain-language explanation can still exist, but it should no longer be the main differentiator.
+
+==================================================
+FEATURE 1 — ACTION CENTER
+==================================================
+
+Create a prominent Action Center at the top of every analysis.
+
+Example:
+
+----------------------------------------
+ACTION CENTER
+
+🔴 HIGH ATTENTION REQUIRED
+
+Claimed amount:
+₹85,000
+
+Notice type:
+Cheque Dishonour / Section 138
+
+Response period:
+15 days from receipt of notice
+
+Receipt date:
+⚠ Not provided
+
+Exact deadline:
+⚠ Cannot calculate yet
+
+Recommended next actions:
+
+1. Confirm when the notice was received
+2. Verify cheque and bank details
+3. Preserve relevant documents
+4. Review the claim with a qualified lawyer
+----------------------------------------
+
+Actions should be dynamically generated from the extracted facts and verified legal rules.
+
+Do NOT generate unsupported legal obligations.
+
+Every action should have a reason/source when appropriate.
+
+Example:
+
+"Confirm notice receipt date"
+Reason:
+"The statutory response period depends on receipt of the notice."
+
+==================================================
+FEATURE 2 — MISSING INFORMATION DETECTOR
+==================================================
+
+Implement a dedicated Missing Information system.
+
+The AI must NOT invent missing information.
+
+If an important fact required for calculating a deadline or assessing a legal procedure is absent, explicitly mark it as missing.
+
+Example:
+
+MISSING INFORMATION
+
+⚠ Notice receipt date
+Why it matters:
+"Required to determine the applicable 15-day response period."
+
+⚠ Bank dishonour date
+Why it matters:
+"May be relevant to statutory timeline verification."
+
+⚠ Cheque number
+Why it matters:
+"Needed to verify the claim against the underlying cheque."
+
+Each missing item should have:
+
+- field
+- reason
+- importance
+- whether user can provide it
+- source requirement if applicable
+
+Example data:
+
+{
+  "field": "notice_received_date",
+  "label": "Notice receipt date",
+  "status": "missing",
+  "importance": "critical",
+  "reason": "Required for deadline calculation",
+  "user_input_allowed": true
+}
+
+Add a UI button:
+
+[Add missing information]
+
+Allow the user to enter the missing information.
+
+Once entered, re-run only the relevant calculations rather than unnecessarily reprocessing the entire document.
+
+==================================================
+FEATURE 3 — LEGAL DEADLINE ENGINE
+==================================================
+
+Do NOT let the LLM freely calculate legal deadlines.
+
+Create a deterministic deadline engine.
+
+Architecture:
+
+Document facts
+      +
+User-provided facts
+      +
+Verified legal rule
+      ↓
+Deadline Engine
+      ↓
+Calculated deadline
+
+LLM may extract dates.
+
+The deterministic code must calculate the final deadline.
+
+Example:
+
+notice_date = 2026-09-17
+notice_received_date = 2026-09-18
+response_period_days = 15
+
+The UI should calculate the deadline using the application's date calculation logic.
+
+IMPORTANT:
+
+Never calculate a deadline from notice date if the legal rule requires receipt date.
+
+If required date is missing:
+
+DO NOT invent it.
+
+Show:
+
+"Exact deadline cannot be calculated because the notice receipt date is unknown."
+
+Allow the user to provide the date.
+
+Every deadline object should contain:
+
+{
+  "event": "...",
+  "start_date": "...",
+  "period_days": 15,
+  "deadline": "...",
+  "source": "...",
+  "source_type": "legal_rule|notice|user_input",
+  "confidence": ...,
+  "calculation_method": "deterministic"
+}
+
+Add visual indicators:
+
+🔴 Critical
+🟠 Urgent
+🟡 Upcoming
+🟢 No immediate deadline detected
+
+Do not use color alone. Include text labels for accessibility.
+
+==================================================
+FEATURE 4 — LEGAL TIMELINE
+==================================================
+
+Create a visual chronological timeline.
+
+Example:
+
+CHEQUE ISSUED
+      ↓
+CHEQUE PRESENTED
+      ↓
+CHEQUE DISHONOURED
+      ↓
+BANK INFORMATION
+      ↓
+LEGAL NOTICE ISSUED
+      ↓
+NOTICE RECEIVED
+      ↓
+RESPONSE / PAYMENT WINDOW
+      ↓
+POSSIBLE NEXT PROCEDURAL STEP
+
+Each event must show:
+
+- Date
+- Event
+- Source
+- Confidence
+- Whether date came from document or user
+
+Example:
+
+NOTICE RECEIVED
+18 Sep 2026
+
+Source:
+User-provided
+
+CONFIRMED
+
+If date is extracted from document:
+
+NOTICE ISSUED
+17 Sep 2026
+
+Source:
+Notice.pdf — Page 1
+
+If unknown:
+
+NOTICE RECEIVED
+Unknown
+
+⚠ User input required
+
+Do not fabricate dates.
+
+==================================================
+FEATURE 5 — "SHOW ME WHY"
+==================================================
+
+Every important AI-generated legal fact should have traceability.
+
+Implement source references.
+
+Examples:
+
+₹85,000
+Source: Notice.pdf — Page 1
+
+Section 138
+Source: Legal corpus — NI Act §138
+
+Notice date
+Source: Notice.pdf — Page 1
+
+Receipt date
+Source: User input
+
+Deadline
+Calculated from:
+Receipt date + applicable statutory period
+
+The user should be able to click:
+
+[Why?]
+
+and see the source/evidence.
+
+This is a major product differentiator.
+
+Do NOT create fake citations.
+
+If no source exists:
+
+"Source not available"
+
+rather than inventing one.
+
+==================================================
+FEATURE 6 — EVIDENCE CHECKLIST / EVIDENCE LOCKER
+==================================================
+
+Create an Evidence section for every case.
+
+Example:
+
+CASE EVIDENCE
+
+✓ Legal Notice.pdf
+✓ Cheque image
+✓ Payment receipt
+⚠ Bank return memo
+⚠ Agreement / invoice
+
+For every important claim, show supporting evidence if available.
+
+Example:
+
+CLAIM:
+₹85,000 outstanding
+
+SUPPORTED BY:
+✓ Legal Notice — Page 1
+
+NOT VERIFIED:
+⚠ Bank return memo not uploaded
+
+Allow the user to upload additional evidence.
+
+Supported examples:
+
+- PDF
+- JPG
+- PNG
+- DOC/DOCX if existing project supports it
+
+Do not overcomplicate the first version.
+
+Store evidence metadata and associate files with the analysis/case.
+
+==================================================
+FEATURE 7 — CLAIM VERIFICATION
+==================================================
+
+Add a "Verified vs Unverified" system.
+
+Every extracted legal fact should have a status.
+
+Example:
+
+VERIFIED FROM DOCUMENT
+✓ Amount: ₹85,000
+✓ Notice date: 17 Sep 2026
+✓ Sender: Daniel Sharma
+
+REQUIRES USER CONFIRMATION
+⚠ Notice receipt date
+⚠ Underlying debt
+⚠ Bank return details
+
+LEGAL SOURCE VERIFIED
+✓ NI Act §138
+
+Do not label an AI inference as "verified".
+
+Use explicit states:
+
+document_verified
+source_verified
+user_confirmed
+inferred
+unknown
+
+==================================================
+FEATURE 8 — LEGAL RULE VALIDATION
+==================================================
+
+Create a rule-validation layer between the LLM and final UI.
+
+DO NOT trust the LLM's legal output blindly.
+
+Pipeline:
+
+OCR
+ ↓
+Fact extraction
+ ↓
+Legal source retrieval
+ ↓
+Deterministic rule validation
+ ↓
+Deadline calculation
+ ↓
+Safety validation
+ ↓
+Final response
+
+The validator must detect:
+
+1. Unsupported statutory claims
+2. Incorrect deadlines
+3. Missing dates required for deadline calculation
+4. Unsupported "rights"
+5. Unsupported legal obligations
+6. Overconfident conclusions
+7. Absolute claims such as:
+   "You will be arrested"
+   "You will definitely lose"
+   "A case will definitely be filed"
+
+Replace absolute statements with conditional language where appropriate.
+
+Example:
+
+BAD:
+"Criminal complaint will be filed."
+
+BETTER:
+"If the applicable statutory requirements are satisfied and the required payment is not made within the relevant period, the payee may initiate proceedings under the applicable provision."
+
+==================================================
+FEATURE 9 — REMOVE THE CURRENT INCORRECT 30-DAY RIGHT
+==================================================
+
+The current analysis has a statement similar to:
+
+"Right to dispute the debt within 30 days of receiving this notice."
+
+This MUST NOT be generated as a Section 138 statutory right.
+
+The 30-day period associated with Section 138 concerns the payee/holder issuing the statutory demand notice after receiving information about cheque dishonour.
+
+The recipient's statutory payment period is 15 days from receipt of the notice, subject to the statutory requirements.
+
+Therefore:
+
+REMOVE:
+"Right to dispute the debt within 30 days."
+
+Also do NOT automatically generate:
+
+"Right to request creditor details under Section 138"
+
+unless the legal source explicitly supports that exact proposition.
+
+If the user disputes the claim, LexLens may recommend obtaining legal advice and preparing an appropriate written response, but do not falsely attribute a generic dispute right to Section 138.
+
+==================================================
+FEATURE 10 — CONDITIONAL LEGAL LANGUAGE
+==================================================
+
+Create a legal-language safety layer.
+
+Avoid:
+
+"You will be arrested."
+
+"You will definitely face criminal charges."
+
+"You have a legal right to X."
+
+"You must do X."
+
+unless the retrieved legal source and factual conditions clearly support that statement.
+
+Prefer:
+
+"May"
+
+"Could"
+
+"If the statutory requirements are satisfied"
+
+"Based on the information currently available"
+
+"Requires verification"
+
+"Consider obtaining legal advice"
+
+The product must clearly state:
+
+"LexLens provides legal information and workflow assistance, not legal advice."
+
+==================================================
+FEATURE 11 — WHAT HAPPENS IF I DO NOTHING?
+==================================================
+
+Create a procedural flow.
+
+Example:
+
+NOTICE RECEIVED
+       ↓
+Response/payment period
+       ↓
+User action
+       ├── Action taken
+       │       ↓
+       │   Matter continues according to circumstances
+       │
+       └── No action
+               ↓
+       Possible next procedural step
+               ↓
+       Further legal process may follow
+
+The exact flow must be generated from verified legal rules.
+
+Do not predict outcomes.
+
+Do not say:
+
+"You will lose."
+
+"You will definitely be sued."
+
+Instead describe possible procedural consequences conditionally.
+
+==================================================
+FEATURE 12 — LAWYER HANDOFF PACK
+==================================================
+
+This is one of the most important features.
+
+Add:
+
+[Prepare Lawyer Brief]
+
+Generate a one-page structured case brief.
+
+Structure:
+
+LEXLENS CASE BRIEF
+
+Matter:
+[notice type]
+
+Jurisdiction:
+[jurisdiction]
+
+Claimant / Sender:
+[name]
+
+Recipient:
+[name]
+
+Amount:
+[amount]
+
+Important dates:
+- Notice issued:
+- Notice received:
+- Cheque date:
+- Dishonour date:
+- Other relevant dates:
+
+Applicable legal provisions:
+[list with sources]
+
+Current deadline:
+[deadline / unknown]
+
+Claim summary:
+[short factual summary]
+
+Recipient's stated position:
+[if user provided it]
+
+Verified facts:
+[list]
+
+Unverified / missing facts:
+[list]
+
+Available evidence:
+[list]
+
+Missing evidence:
+[list]
+
+Questions for lawyer:
+1.
+2.
+3.
+
+Important warning:
+"This is an AI-generated factual summary for lawyer review and is not legal advice."
+
+Add:
+
+[Download Lawyer Brief]
+
+If PDF generation already exists, reuse it.
+
+Otherwise implement a clean printable/PDF version.
+
+==================================================
+FEATURE 13 — USER POSITION
+==================================================
+
+Add a simple case-position selector.
+
+Example:
+
+"What is your position?"
+
+○ I agree with the claim
+○ I partially dispute the claim
+○ I completely dispute the claim
+○ I already paid
+○ I don't recognize the claim
+○ I don't know
+
+This information should influence:
+
+- action checklist
+- evidence checklist
+- lawyer questions
+- response draft
+
+Do not use it to make legal conclusions.
+
+==================================================
+FEATURE 14 — RESPONSE DRAFTING
+==================================================
+
+Keep the existing AI response generator, but redesign it.
+
+Do not immediately generate a generic legal letter.
+
+First collect:
+
+1. User's position
+2. Important facts
+3. Supporting evidence
+4. Missing information
+5. Relevant verified legal sources
+
+Then generate a draft.
+
+The draft must clearly say:
+
+"Draft for review — not legal advice."
+
+Never fabricate facts.
+
+If information is missing:
+
+[PLACEHOLDER — USER INPUT REQUIRED]
+
+Do not make up names, dates, cheque numbers, transactions, or legal claims.
+
+==================================================
+FEATURE 15 — CASE DASHBOARD
+==================================================
+
+Create a dashboard where users can see all notices/cases.
+
+Example:
+
+LEX LENS
+
+ACTIVE CASES
+
+🔴 Cheque Notice
+₹85,000
+Deadline: 3 Oct
+9 days remaining
+
+🟠 Consumer Notice
+Deadline: 7 Oct
+
+🟡 Rent Notice
+Deadline: 20 Oct
+
+Each case should have:
+
+- status
+- urgency
+- deadline
+- notice type
+- amount if available
+- last action
+- missing information count
+
+Allow:
+
+[Open Case]
+
+==================================================
+FEATURE 16 — DEADLINE REMINDERS
+==================================================
+
+If the project already has notifications/reminders, integrate with them.
+
+Allow:
+
+[Set Reminder]
+
+Suggested reminders:
+
+7 days before
+3 days before
+24 hours before
+
+Do not create reminders for deadlines that have not been reliably calculated.
+
+If the deadline is unknown:
+
+"Add receipt date before creating deadline reminder."
+
+==================================================
+FEATURE 17 — MULTILINGUAL OUTPUT
+==================================================
+
+Preserve existing multilingual functionality.
+
+Prioritize:
+
+English
+Hindi
+
+If the existing project supports more languages, do not remove them.
+
+IMPORTANT:
+
+Translation must not change:
+
+- legal dates
+- amounts
+- statutory references
+- names
+- cheque numbers
+- deadlines
+
+Legal terminology should remain clear.
+
+For Hindi, provide understandable plain language rather than literal machine translation.
+
+Example:
+
+"15-day response period"
+
+should remain clearly identifiable as a statutory/procedural period.
+
+==================================================
+FEATURE 18 — REPORT REDESIGN
+==================================================
+
+Redesign the current analysis report.
+
+CURRENT STYLE:
+Long AI explanation first.
+
+NEW STYLE:
+
+----------------------------------------
+LEX LENS CASE ANALYSIS
+
+🔴 CRITICAL / HIGH / MEDIUM / LOW
+
+ACTION CENTER
+----------------------------------------
+
+What needs attention now?
+
+[Dynamic actions]
+
+----------------------------------------
+DEADLINE
+----------------------------------------
+
+15-day period from receipt
+
+Receipt date:
+⚠ Missing
+
+Exact deadline:
+Not yet calculable
+
+[Add receipt date]
+
+----------------------------------------
+LEGAL TIMELINE
+----------------------------------------
+
+[visual timeline]
+
+----------------------------------------
+KEY FACTS
+----------------------------------------
+
+[structured facts]
+
+----------------------------------------
+MISSING INFORMATION
+----------------------------------------
+
+[missing facts]
+
+----------------------------------------
+EVIDENCE
+----------------------------------------
+
+[documents and verification]
+
+----------------------------------------
+LEGAL BASIS
+----------------------------------------
+
+[verified provisions and sources]
+
+----------------------------------------
+WHAT HAPPENS NEXT
+----------------------------------------
+
+[conditional procedural flow]
+
+----------------------------------------
+PREPARE FOR LAWYER
+----------------------------------------
+
+[case brief]
+
+----------------------------------------
+RESPONSE DRAFT
+----------------------------------------
+
+[draft]
+
+----------------------------------------
+PLAIN-LANGUAGE EXPLANATION
+----------------------------------------
+
+[existing explanation]
+
+----------------------------------------
+
+DISCLAIMER
+
+LexLens provides legal information and workflow assistance, not legal advice.
+
+==================================================
+FEATURE 19 — DEMO MODE
+==================================================
+
+Create a polished demo experience using the existing sample notice.
+
+The demo should showcase:
+
+1. Upload notice
+2. Extract facts
+3. Detect missing receipt date
+4. Show deadline cannot yet be calculated
+5. User enters receipt date
+6. Deadline is calculated
+7. Timeline updates
+8. Evidence checklist appears
+9. User sees verified vs unverified facts
+10. Action Center updates
+11. Lawyer Brief generated
+
+The demo should feel fast.
+
+Avoid unnecessary loading screens.
+
+During AI processing show meaningful progress:
+
+Reading document
+Extracting facts
+Checking legal sources
+Building timeline
+Checking missing information
+Preparing action plan
+
+Do not claim a task completed until it actually completed.
+
+==================================================
+FEATURE 20 — ARCHITECTURE
+==================================================
+
+Use this conceptual architecture:
+
+                 DOCUMENT
+                     ↓
+                OCR / PARSER
+                     ↓
+              FACT EXTRACTION
+                     ↓
+        ┌────────────┴────────────┐
+        ↓                         ↓
+ DOCUMENT FACTS              USER FACTS
+        │                         │
+        └────────────┬────────────┘
+                     ↓
+              LEGAL SOURCE/RAG
+                     ↓
+              RULE VALIDATOR
+                     ↓
+              DEADLINE ENGINE
+                     ↓
+             SAFETY VALIDATOR
+                     ↓
+              ACTION ENGINE
+                     ↓
+       ┌─────────────┼──────────────┐
+       ↓             ↓              ↓
+    Timeline      Evidence       Lawyer Brief
+       ↓             ↓              ↓
+             USER DASHBOARD
+
+LLM responsibilities:
+
+- OCR interpretation
+- fact extraction
+- classification
+- plain-language explanation
+- draft generation
+
+Deterministic application code responsibilities:
+
+- date calculations
+- deadline calculations
+- missing-data detection
+- validation rules
+- severity rules where possible
+- source presence validation
+- case state management
+
+Legal RAG responsibilities:
+
+- retrieve relevant legal sources
+- provide source IDs
+- support legal propositions
+
+Never allow the LLM alone to determine a legal deadline.
+
+==================================================
+FEATURE 21 — STRUCTURED AI OUTPUT
+==================================================
+
+Do NOT allow the AI to return arbitrary prose as the internal source of truth.
+
+Create a strict schema.
+
+Example:
+
+{
+  "notice_type": "",
+  "jurisdiction": "",
+  "language": "",
+  "sender": {
+    "name": "",
+    "role": ""
+  },
+  "recipient": {
+    "name": ""
+  },
+  "amount": {
+    "value": 0,
+    "currency": "INR",
+    "source": ""
+  },
+  "dates": [],
+  "claims": [],
+  "legal_provisions": [],
+  "deadlines": [],
+  "missing_information": [],
+  "evidence_items": [],
+  "severity": "",
+  "confidence": 0,
+  "action_items": [],
+  "procedural_consequences": [],
+  "sources": []
+}
+
+Every legal proposition should contain a source reference.
+
+Example:
+
+{
+  "proposition": "...",
+  "source_id": "NI_ACT_138",
+  "verified": true
+}
+
+If source_id is missing:
+
+verified = false
+
+==================================================
+FEATURE 22 — CONFIDENCE MODEL
+==================================================
+
+Do not use one overall 95% confidence number as proof that the entire report is correct.
+
+Different facts should have independent confidence.
+
+Example:
+
+Amount:
+98%
+
+Notice date:
+99%
+
+Sender:
+96%
+
+Notice receipt date:
+UNKNOWN
+
+Legal proposition:
+verified
+
+Deadline:
+not calculable
+
+Display confidence intelligently.
+
+Example:
+
+FACT CONFIDENCE
+
+✓ Amount — High confidence
+✓ Notice date — High confidence
+⚠ Receipt date — Missing
+⚠ Deadline — Cannot calculate
+
+Avoid misleading:
+
+"Overall confidence 95%"
+
+if critical fields remain unknown.
+
+==================================================
+FEATURE 23 — SAFETY VALIDATOR
+==================================================
+
+Before rendering the final report, run:
+
+validateAnalysis()
+
+Checks:
+
+- Every legal claim has source
+- Every deadline has required date inputs
+- No fabricated dates
+- No fabricated rights
+- No unsupported statutory claims
+- No absolute outcome predictions
+- No missing critical warnings
+- No unsupported "verified" labels
+- No source mismatch
+- No impossible dates
+- No contradictory facts
+
+If validation fails:
+
+DO NOT silently display the generated output.
+
+Instead:
+
+1. Correct automatically if safe
+2. Mark as requiring verification
+3. Remove unsupported claim
+4. Show user-friendly warning
+
+Example:
+
+"LexLens could not verify this legal proposition from the available sources, so it has been excluded from the action plan."
+
+==================================================
+FEATURE 24 — DATA MODEL
+==================================================
+
+Inspect the existing database first.
+
+Do not duplicate models.
+
+If required, introduce/extend entities similar to:
+
+Case
+Notice
+Document
+Fact
+LegalSource
+Deadline
+TimelineEvent
+Evidence
+ActionItem
+UserInput
+LawyerBrief
+
+Relations:
+
+Case
+ ├── Notice
+ ├── Documents
+ ├── Facts
+ ├── Deadlines
+ ├── TimelineEvents
+ ├── Evidence
+ ├── Actions
+ └── LawyerBrief
+
+Use the project's existing ORM/database technology.
+
+==================================================
+FEATURE 25 — UI/UX
+==================================================
+
+The UI should feel like a serious legal-tech SaaS, not a generic AI chatbot.
+
+Design goals:
+
+- Clean
+- Professional
+- Trustworthy
+- Minimal
+- Fast
+- Mobile responsive
+- Strong visual hierarchy
+- Clear severity indicators
+- Clear deadlines
+- No unnecessary animations
+
+Important components:
+
+ActionCard
+DeadlineCard
+Timeline
+FactTable
+MissingInformationCard
+EvidenceCard
+LegalSourceCard
+ProceduralFlow
+LawyerBriefCard
+ConfidenceBadge
+VerificationBadge
+
+Use the existing design system where possible.
+
+Do not introduce a completely unrelated visual language.
+
+==================================================
+FEATURE 26 — PERFORMANCE
+==================================================
+
+Optimize for hackathon demo speed.
+
+Do not re-run the entire AI pipeline when:
+
+- user enters receipt date
+- user adds a simple missing field
+- user changes case position
+
+Recalculate only dependent data.
+
+Example:
+
+Receipt date changed
+       ↓
+Deadline engine
+       ↓
+Timeline
+       ↓
+Action Center
+
+Do NOT:
+
+Receipt date changed
+       ↓
+OCR again
+       ↓
+Full LLM analysis again
+
+==================================================
+FEATURE 27 — PRIVACY
+==================================================
+
+Legal documents can contain sensitive information.
+
+Implement or preserve:
+
+- secure file access
+- authenticated case access
+- no public document URLs
+- minimal logging of document contents
+- no unnecessary storage of raw legal text
+- clear privacy messaging
+
+Never expose one user's case to another user.
+
+==================================================
+FEATURE 28 — ERROR HANDLING
+==================================================
+
+The system must gracefully handle:
+
+- unreadable PDF
+- blurry image
+- unsupported document
+- OCR failure
+- AI failure
+- legal source unavailable
+- missing dates
+- contradictory dates
+- unsupported jurisdiction
+- unsupported notice type
+
+Example:
+
+"LexLens could not reliably read page 3. Please upload a clearer copy."
+
+Do not generate confident legal conclusions from unreadable evidence.
+
+==================================================
+FEATURE 29 — INDIA-FIRST MVP
+==================================================
+
+For the hackathon demo, prioritize India.
+
+Focus on a small number of notice types rather than pretending to support every legal matter.
+
+Priority:
+
+1. Cheque dishonour
+2. Consumer dispute
+3. Rent / eviction
+
+Prioritize:
+
+English
+Hindi
+
+Keep architecture extensible for additional jurisdictions/languages.
+
+Do not build fake support for jurisdictions that do not have a verified legal corpus.
+
+==================================================
+FEATURE 30 — SAMPLE CHEQUE NOTICE
+==================================================
+
+Ensure the existing sample cheque notice does NOT produce the following incorrect output:
+
+BAD:
+"Right to dispute the debt within 30 days of receiving this notice."
+
+BAD:
+"Right to request creditor details under Section 138."
+
+BAD:
+"15 days left / October 2" when receipt date is unknown.
+
+Correct behavior:
+
+Notice date:
+17 Sep 2026
+
+Receipt date:
+Unknown
+
+Deadline:
+"15 days from receipt of notice"
+
+Exact calendar deadline:
+"Cannot calculate until receipt date is provided."
+
+If user enters:
+
+18 Sep 2026
+
+then calculate the applicable deadline using deterministic date logic and clearly show:
+
+"Calculated from user-provided receipt date."
+
+==================================================
+IMPORTANT LEGAL-SAFETY REQUIREMENT
+==================================================
+
+This is a legal-information product.
+
+Do not pretend to be a lawyer.
+
+Do not generate fake legal rights.
+
+Do not invent statutory sections.
+
+Do not invent deadlines.
+
+Do not invent facts.
+
+Do not provide unsupported legal conclusions.
+
+Use authoritative legal sources where available.
+
+Every legal proposition must have traceable source metadata.
+
+If something cannot be verified:
+
+SAY SO.
+
+"I couldn't verify this from the available legal sources."
+
+is better than a confident incorrect answer.
+
+==================================================
+HACKATHON DIFFERENTIATOR
+==================================================
+
+The final product should communicate:
+
+"ChatGPT can explain a legal notice.
+
+LexLens turns it into an actionable, evidence-backed workflow."
+
+The strongest differentiators are:
+
+1. Missing Information Detection
+2. Deterministic Legal Deadline Engine
+3. Legal Timeline
+4. Verified vs Unverified Facts
+5. Evidence-to-Claim Mapping
+6. Action Center
+7. Lawyer Handoff Brief
+8. Source Traceability
+
+These features should be visually obvious in the demo.
+
+==================================================
+HACKATHON DEMO FLOW
+==================================================
+
+The final application should support this exact demo:
+
+STEP 1
+Upload a legal notice.
+
+STEP 2
+Show:
+"Extracting facts..."
+
+STEP 3
+Show:
+"7 important facts found."
+
+STEP 4
+Show:
+"3 critical pieces of information are missing."
+
+STEP 5
+Show:
+"Notice receipt date is required for exact deadline calculation."
+
+STEP 6
+User enters:
+18 September 2026
+
+STEP 7
+Deadline engine calculates the deadline.
+
+STEP 8
+Timeline updates automatically.
+
+STEP 9
+Action Center updates.
+
+STEP 10
+Evidence checklist shows missing supporting documents.
+
+STEP 11
+Legal provisions show source references.
+
+STEP 12
+User selects:
+"I dispute the claim."
+
+STEP 13
+LexLens updates:
+- actions
+- evidence checklist
+- lawyer questions
+
+STEP 14
+Click:
+"Prepare Lawyer Brief"
+
+STEP 15
+Generate one-page structured case brief.
+
+STEP 16
+Show:
+
+12-page notice
+      ↓
+7 verified facts
+      ↓
+3 missing facts
+      ↓
+1 legal timeline
+      ↓
+1 calculated deadline
+      ↓
+4 prioritized actions
+      ↓
+1 lawyer-ready brief
+
+This is the core hackathon story.
+
+==================================================
+IMPLEMENTATION PROCESS
+==================================================
+
+Before coding:
+
+1. Inspect repository.
+2. Identify framework.
+3. Identify frontend structure.
+4. Identify backend/API structure.
+5. Identify AI provider.
+6. Identify OCR implementation.
+7. Identify database.
+8. Identify current analysis schema.
+9. Identify current analysis page.
+10. Identify existing authentication.
+11. Identify existing file upload.
+12. Identify existing PDF/export functionality.
+13. Identify existing legal corpus/RAG.
+
+Then produce a short internal implementation plan.
+
+Then implement in phases:
+
+PHASE 1:
+Fix current legal-analysis accuracy problems.
+
+PHASE 2:
+Structured analysis schema.
+
+PHASE 3:
+Missing Information Detector.
+
+PHASE 4:
+Deterministic Deadline Engine.
+
+PHASE 5:
+Legal Timeline.
+
+PHASE 6:
+Action Center.
+
+PHASE 7:
+Evidence and verification.
+
+PHASE 8:
+Lawyer Brief.
+
+PHASE 9:
+UI redesign.
+
+PHASE 10:
+Safety validator.
+
+PHASE 11:
+Demo polish.
+
+PHASE 12:
+Testing.
+
+==================================================
+TESTING REQUIREMENTS
+==================================================
+
+Create tests for:
+
+1. Missing receipt date
+2. Known receipt date
+3. Invalid date
+4. Notice date vs receipt date
+5. 15-day period calculation
+6. Missing statutory source
+7. Unsupported legal claim
+8. Fake rights detection
+9. Evidence mapping
+10. Timeline ordering
+11. Lawyer brief generation
+12. User-position changes
+13. AI failure
+14. OCR failure
+
+For the sample Section 138 notice specifically verify:
+
+- ₹85,000 extracted correctly
+- Notice date extracted correctly
+- Receipt date remains unknown if not present
+- Exact deadline is NOT shown until receipt date exists
+- 30-day "right to dispute" does not appear
+- "Right to request creditor details under §138" does not appear unless supported
+- 15-day statutory period is described correctly
+- imprisonment statement is sourced
+- criminal proceedings are expressed conditionally
+- all legal claims have source metadata
+
+==================================================
+FINAL ACCEPTANCE CRITERIA
+==================================================
+
+The update is complete only when:
+
+✓ Existing project still runs
+✓ Existing authentication works
+✓ Existing upload works
+✓ Existing AI analysis works
+✓ Existing languages still work
+✓ Analysis report is redesigned
+✓ Missing information detection works
+✓ Deadline engine works
+✓ Deadline cannot be calculated when required input is missing
+✓ Timeline works
+✓ Evidence section works
+✓ Verified/unverified states work
+✓ Source traceability works
+✓ Action Center works
+✓ Lawyer Brief works
+✓ Response draft does not fabricate facts
+✓ Safety validator works
+✓ Sample cheque notice no longer produces the 30-day-right error
+✓ Sample cheque notice no longer fabricates October 2 deadline without receipt date
+✓ No unsupported legal rights are displayed
+✓ No fake legal citations are generated
+✓ Mobile UI works
+✓ Production build succeeds
+✓ No TypeScript errors
+✓ No console errors in the primary flow
+✓ Demo flow can be completed quickly
+
+==================================================
+IMPORTANT CODING RULES
+==================================================
+
+- Inspect before modifying.
+- Reuse existing code.
+- Do not rebuild unnecessarily.
+- Do not introduce unnecessary dependencies.
+- Keep components modular.
+- Keep TypeScript types strict.
+- Keep API contracts explicit.
+- Keep legal rules separate from LLM prompts.
+- Keep deadline calculation deterministic.
+- Keep source IDs traceable.
+- Keep AI output structured.
+- Never silently fabricate missing information.
+- Never hide validation failures.
+- Do not create fake data just to make UI look complete.
+- Use real data from the uploaded notice wherever available.
+- Use sample/demo data only where explicitly marked as demo data.
+- Keep comments minimal and useful.
+- Do not add huge explanatory comments to code.
+
+==================================================
+FINAL TASK
+==================================================
+
+Now inspect the existing LexLens repository and implement this upgrade directly into the current project.
+
+Do not merely give me a plan.
+
+Actually modify the project.
+
+After implementation:
+
+1. Run the application.
+2. Run the relevant tests.
+3. Run production build/type checking.
+4. Test the complete notice-analysis flow.
+5. Test the sample cheque notice.
+6. Verify the deadline behavior.
+7. Verify the legal safety validator.
+8. Fix any errors found.
+9. Give me a concise summary of:
+   - files changed
+   - features implemented
+   - tests performed
+   - any remaining limitations
+
+Most importantly:
+
+The final product must feel like a REAL working legal workflow product, not an AI text generator.

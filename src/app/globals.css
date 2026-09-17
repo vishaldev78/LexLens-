@@ -184,3 +184,12 @@ html {
     break-inside: avoid;
   }
 }
+
+/* Brief-only print mode (lawyer brief → clean one-pager PDF) */
+@media print {
+  body.brief-print .case-nobrief,
+  body.brief-print header,
+  body.brief-print footer {
+    display: none !important;
+  }
+}

@@ -3,18 +3,15 @@
 import { motion } from "framer-motion";
 import {
   ScanLine,
-  FileText,
-  Languages,
-  Globe2,
-  Tags,
   ListChecks,
   BookOpenCheck,
-  ShieldCheck,
+  GitBranch,
+  AlertTriangle,
   ClipboardCheck,
   Check,
   Loader2,
 } from "lucide-react";
-import type { Analysis } from "@/lib/lexlens/types";
+import type { CaseBase } from "@/lib/lexlens/types";
 import { LANGUAGE_NAMES } from "@/lib/lexlens/types";
 
 export interface StageMeta {
@@ -28,35 +25,32 @@ export interface StageMeta {
 export interface PipelineStrings {
   titleRunning: string;
   titleDone: string;
-  labels: string[]; // 9 stage labels
-  running: string[]; // 9 running sub-lines
+  labels: string[]; // 6 stage labels
+  running: string[]; // 6 running sub-lines
 }
 
 const STAGE_ICONS: React.ElementType[] = [
   ScanLine,
-  FileText,
-  Languages,
-  Globe2,
-  Tags,
   ListChecks,
   BookOpenCheck,
-  ShieldCheck,
+  GitBranch,
+  AlertTriangle,
   ClipboardCheck,
 ];
+
+export const PIPELINE_STAGE_COUNT = 6;
 
 /** Language-neutral "done" values — engine facts speak for themselves. */
 function stageDoneValue(i: number, meta: StageMeta | null): string {
   if (!meta) return "✓";
   switch (i) {
-    case 2:
+    case 0:
       return LANGUAGE_NAMES[meta.language] ?? meta.language;
-    case 3:
-      return meta.jurisdiction;
-    case 4:
-      return meta.noticeType;
-    case 6:
+    case 1:
+      return `${meta.noticeType}`;
+    case 2:
       return `${meta.citations}`;
-    case 8:
+    case 5:
       return `${Math.round(meta.confidence * 100)}%`;
     default:
       return "✓";
@@ -66,23 +60,24 @@ function stageDoneValue(i: number, meta: StageMeta | null): string {
 export function Pipeline({
   currentStage,
   done,
-  analysis,
+  base,
   s,
 }: {
   currentStage: number;
   done: boolean;
-  analysis: Analysis | null;
+  base: CaseBase | null;
   s: PipelineStrings;
 }) {
-  const meta: StageMeta | null = analysis
+  const meta: StageMeta | null = base
     ? {
-        language: analysis.language_detected,
-        jurisdiction: `${analysis.jurisdiction.country}${analysis.jurisdiction.region ? " · " + analysis.jurisdiction.region : ""}`,
-        noticeType: analysis.notice_type,
-        citations: analysis.citations.length,
-        confidence: analysis.overall_confidence,
+        language: base.language_detected,
+        jurisdiction: `${base.jurisdiction.country}${base.jurisdiction.region ? " · " + base.jurisdiction.region : ""}`,
+        noticeType: base.notice_type,
+        citations: base.citations.length,
+        confidence: base.overall_confidence,
       }
     : null;
+  const N = PIPELINE_STAGE_COUNT;
 
   return (
     <div className="print-card rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -99,7 +94,7 @@ export function Pipeline({
           </h3>
         </div>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[11px] font-semibold text-slate-500">
-          {done ? "9 / 9" : `${Math.min(currentStage + 1, 9)} / 9`}
+          {done ? `${N} / ${N}` : `${Math.min(currentStage + 1, N)} / ${N}`}
         </span>
       </div>
 
@@ -108,7 +103,7 @@ export function Pipeline({
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
           initial={false}
-          animate={{ width: done ? "100%" : `${((currentStage + 1) / 9) * 100}%` }}
+          animate={{ width: done ? "100%" : `${((currentStage + 1) / N) * 100}%` }}
           transition={{ duration: 0.4 }}
         />
       </div>

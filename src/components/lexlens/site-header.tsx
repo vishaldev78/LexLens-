@@ -25,8 +25,8 @@ export function SiteHeader() {
   const links = [
     { href: "/", label: t.nav_home, active: pathname === "/" },
     { href: "/analyze", label: t.nav_analyze, active: pathname === "/analyze" },
+    { href: "/cases", label: t.nav_cases, active: pathname === "/cases" },
     { href: "/#how", label: t.nav_how, active: false },
-    { href: "/#languages", label: t.nav_languages, active: false },
   ];
 
   return (
