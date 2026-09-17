@@ -1,6 +1,32 @@
 # Worklog
 
 ---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: Fix "Analysis failed — Network error" + redesign UI to clean white production theme + local VS Code runnability
+
+Work Log:
+- Diagnosis: dev.log showed all POST /api/analyze returned 200 — the browser-side fetch died because responses took 31–60s and the preview gateway severed the connection (~30s). Root causes: single 60s LLM attempt chain + verbose JSON output.
+- Latency fix (route.ts): compact-JSON + brevity instructions in prompt (31s → ~15s typical), hard server-side LLM budget (LLM_DEADLINE_MS 23s, per-attempt cap 20s via withTimeout/Promise.race), attempt 2 only if time remains; anything slower → instant offline engine. Worst-case response now ~25s < gateway timeout.
+- Client resilience (page.tsx): fetch with AbortController (110s) + automatic retry on network failure before showing error; cleaner error panel with retry.
+- Created src/lib/lexlens/fallback-analyzer.ts — offline rule-based engine: regex classification (IN §138 cheque bounce / US FDCPA debt / ES LAU eviction / generic), entity extraction (₹/$/€ amounts, sender names), statutory deadline templates with dates relative to today, fully localized EN/HI/ES blocks (summary, key_risk, rights, next_steps), confidence 0.8 typed / 0.55 generic (triggers low-confidence banner). Used automatically when LLM unreachable — makes local VS Code run work with zero credentials and makes the demo never hard-fail.
+- UI redesign to clean white modern SaaS theme:
+  - page.tsx: industry-standard sticky navbar (white/85 blur, nav links, "Analyze a notice" CTA, mobile hamburger menu), hero with badge + gradient headline + dual CTAs, "How it works" 3-step section (#how-it-works), demo section (#demo), pipeline section (#pipeline), trust & safety (#trust) with new "Never-fail demo engine" card, multi-column footer with roadmap links
+  - pipeline.tsx: light theme, compact 3-column grid layout
+  - result.tsx: light theme throughout (white cards, slate borders, red-50/amber-50/emerald-50 severity), new "offline engine (LLM unreachable)" meta tag when fallback used
+  - types.ts: SEVERITY_META light tokens + border field; pipeline_meta.fallback flag
+  - globals.css: light selection/scrollbar
+- README.md created (user-requested local runnability): quick start (bun/npm), two-engine explanation, project structure, API contract, judge demo script
+- Tests: scripts/test-fallback.ts — 17/17 passed (classification, entities, citations whitelist, localization, red-severity lawyer steps in EN/HI/ES, generic graceful degradation)
+- Verification (agent-browser): light landing desktop + mobile 390px, mobile hamburger menu open OK, US debt golden path → result, Hindi + Spanish switches, ES eviction timed API test 15.1s with correct LAU/LEC citations, cheque bounce red path, footer, zero page errors, lint clean
+
+Stage Summary:
+- Network error eliminated: server now always responds <25s (LLM fast path ~15s, or instant fallback); client auto-retries
+- App fully workable locally in VS Code without SDK credentials (offline engine auto-activates)
+- Clean white production UI with standard navbar/footer; dark theme fully removed
+- API: POST /api/analyze with pipeline_meta.model = "glm-4.6" | "offline-demo-engine"
+
+---
 Task ID: 1
 Agent: Super Z (main agent)
 Task: Build LexLens working MVP web app from user's PRD+TRD (hackathon-judge-facing demo)

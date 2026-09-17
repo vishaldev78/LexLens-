@@ -37,11 +37,7 @@ const STAGES: { key: string; label: string; icon: React.ElementType }[] = [
   { key: "ready", label: "Action plan ready", icon: ClipboardCheck },
 ];
 
-function stageSub(
-  i: number,
-  meta: StageMeta | null,
-  done: boolean
-): string {
+function stageSub(i: number, meta: StageMeta | null, done: boolean): string {
   if (!done) {
     const running: Record<number, string> = {
       0: "Normalizing characters, stripping headers…",
@@ -50,7 +46,7 @@ function stageSub(
       3: "Matching sender, court and statute clues…",
       4: "Mapping to notice taxonomy…",
       5: "Extracting sender, demands, deadlines…",
-      6: `Searching ${meta ? "jurisdiction-filtered" : "versioned"} statute corpus…`,
+      6: "Searching jurisdiction-filtered statute corpus…",
       7: "Verifying citations against corpus…",
       8: "Assembling plain-language breakdown…",
     };
@@ -58,7 +54,7 @@ function stageSub(
   }
   if (!meta) return "done";
   const final: Record<number, string> = {
-    0: `${meta.noticeType ? "input normalized" : "done"}`,
+    0: "input normalized",
     1: "clean text layer built",
     2: `detected: ${LANGUAGE_NAMES[meta.language] ?? meta.language}`,
     3: meta.jurisdiction,
@@ -76,7 +72,7 @@ export function Pipeline({
   done,
   analysis,
 }: {
-  currentStage: number; // index of the active stage
+  currentStage: number;
   done: boolean;
   analysis: Analysis | null;
 }) {
@@ -91,30 +87,27 @@ export function Pipeline({
     : null;
 
   return (
-    <div
-      aria-live="polite"
-      className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md p-5 sm:p-6"
-    >
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2.5 w-2.5">
             {!done && (
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-60"></span>
             )}
             <span
-              className={`relative inline-flex rounded-full h-2.5 w-2.5 ${done ? "bg-emerald-400" : "bg-indigo-400"}`}
+              className={`relative inline-flex h-2.5 w-2.5 rounded-full ${done ? "bg-emerald-500" : "bg-indigo-500"}`}
             ></span>
           </span>
-          <h3 className="text-sm font-semibold tracking-wide text-slate-200">
+          <h3 className="text-sm font-semibold tracking-wide text-slate-800">
             {done ? "Pipeline complete" : "Analyzing your notice…"}
           </h3>
         </div>
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-400">
           {done ? "10-stage v0.9" : "10-stage pipeline"}
         </span>
       </div>
 
-      <ol className="relative space-y-1">
+      <ol className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
         {STAGES.map((stage, i) => {
           const isDone = done || i < currentStage;
           const isActive = !done && i === currentStage;
@@ -124,19 +117,19 @@ export function Pipeline({
               key={stage.key}
               initial={false}
               animate={{
-                opacity: isDone || isActive ? 1 : 0.38,
-                x: isActive ? 4 : 0,
+                opacity: isDone || isActive ? 1 : 0.45,
+                scale: isActive ? 1.015 : 1,
               }}
               transition={{ duration: 0.25 }}
-              className="relative flex items-center gap-3 rounded-xl px-3 py-2"
+              className="relative flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5"
             >
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                   isActive
-                    ? "border-indigo-400/50 bg-indigo-500/20 text-indigo-300"
+                    ? "border-indigo-200 bg-indigo-50 text-indigo-600"
                     : isDone
-                      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                      : "border-white/10 bg-white/[0.03] text-slate-500"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                      : "border-slate-200 bg-slate-50 text-slate-400"
                 }`}
               >
                 {isDone ? (
@@ -149,15 +142,15 @@ export function Pipeline({
               </span>
               <span className="min-w-0">
                 <span
-                  className={`block text-[13px] leading-tight font-medium ${
-                    isActive ? "text-indigo-200" : isDone ? "text-slate-200" : "text-slate-400"
+                  className={`block text-[13px] font-medium leading-tight ${
+                    isActive ? "font-semibold text-indigo-700" : isDone ? "text-slate-800" : "text-slate-500"
                   }`}
                 >
                   {stage.label}
                 </span>
                 <span
-                  className={`block font-mono text-[11px] leading-tight truncate ${
-                    isActive ? "text-indigo-400/90" : "text-slate-500"
+                  className={`block truncate font-mono text-[11px] leading-tight ${
+                    isActive ? "text-indigo-500" : isDone ? "text-slate-500" : "text-slate-400"
                   }`}
                 >
                   {(isDone || isActive) && stageSub(i, meta, done)}
@@ -166,7 +159,7 @@ export function Pipeline({
               {isActive && (
                 <motion.span
                   layoutId="stage-glow"
-                  className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-indigo-400/30 bg-indigo-500/[0.06]"
+                  className="pointer-events-none absolute inset-0 rounded-xl border border-indigo-200 bg-indigo-50/70"
                 />
               )}
             </motion.li>

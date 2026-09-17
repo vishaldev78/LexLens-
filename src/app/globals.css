@@ -127,16 +127,16 @@ html {
   scroll-behavior: smooth;
 }
 
-/* dark selection that fits the legal-tech theme */
+/* light-theme selection that fits the clean UI */
 ::selection {
-  background: rgba(99, 102, 241, 0.35);
-  color: #e0e7ff;
+  background: rgba(99, 102, 241, 0.18);
+  color: #312e81;
 }
 
-/* slim custom scrollbar for dark panels */
+/* slim custom scrollbar for light panels */
 .custom-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+  scrollbar-color: rgba(99, 102, 241, 0.35) transparent;
 }
 .custom-scroll::-webkit-scrollbar {
   width: 6px;
@@ -146,11 +146,11 @@ html {
   background: transparent;
 }
 .custom-scroll::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.3);
   border-radius: 999px;
 }
 .custom-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.55);
+  background: rgba(99, 102, 241, 0.5);
 }
 
 /* Devanagari-friendly fallback chain for Hindi output */

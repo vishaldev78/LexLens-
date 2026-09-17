@@ -80,6 +80,7 @@ export interface AnalyzeResponse {
     confidence_capped: boolean;
     safety_edits: string[];
     model: string;
+    fallback: boolean; // true when the offline demo engine produced the result
   };
   error?: string;
 }
@@ -99,31 +100,34 @@ export const LOCALE_LABELS: Record<Locale, { label: string; short: string }> = {
 
 export const SEVERITY_META: Record<
   SeverityLevel,
-  { label: string; blurb: string; ring: string; bg: string; text: string; dot: string }
+  { label: string; blurb: string; ring: string; bg: string; border: string; text: string; dot: string }
 > = {
   red: {
     label: "Critical",
     blurb: "Court / criminal exposure or an imminent deadline. Act now.",
-    ring: "ring-red-500/40",
-    bg: "bg-red-500/10",
-    text: "text-red-300",
-    dot: "bg-red-400",
+    ring: "ring-red-200",
+    bg: "bg-red-50",
+    border: "border-red-200",
+    text: "text-red-700",
+    dot: "bg-red-500",
   },
   yellow: {
     label: "Action needed",
     blurb: "A formal demand with a real deadline. Do not ignore it.",
-    ring: "ring-amber-500/40",
-    bg: "bg-amber-500/10",
-    text: "text-amber-300",
-    dot: "bg-amber-400",
+    ring: "ring-amber-200",
+    bg: "bg-amber-50",
+    border: "border-amber-200",
+    text: "text-amber-700",
+    dot: "bg-amber-500",
   },
   green: {
     label: "Informational",
     blurb: "No immediate legal exposure detected.",
-    ring: "ring-emerald-500/40",
-    bg: "bg-emerald-500/10",
-    text: "text-emerald-300",
-    dot: "bg-emerald-400",
+    ring: "ring-emerald-200",
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+    text: "text-emerald-700",
+    dot: "bg-emerald-500",
   },
 };
 
