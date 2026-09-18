@@ -43,11 +43,30 @@ next-env.d.ts
 local-*
 .claude
 .z-ai-config
+.zscripts
 *.log
 dev.log
 dev.out.log
 test
 prompt
+
+local-*
+.claude
+.z-ai-config
+*.log
+dev.log
+dev.out.log
+test
+prompt
+
+server.log
+
+# Skills directory
+/skills/
+
+# Local scripts/config
+.zscripts
+.zscripts/
 
 server.log
 # Skills directory
