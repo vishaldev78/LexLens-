@@ -79,12 +79,15 @@ interface VisionOcrResult {
 /** Free OCR using Tesseract.js — no API key, no limits, runs locally. */
 async function tesseractOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | null>): Promise<VisionOcrResult> {
   try {
+    // Vercel serverless: use /tmp for cache (only writable directory)
     const worker = await createWorker(["eng"], 1, {
       logger: () => {},
+      cachePath: "/tmp/tesseract-cache",
     });
     const mime = `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
     const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
-    const { data } = await worker.recognize(dataUrl);
+    // Timeout Tesseract to avoid Vercel 120s limit
+    const { data } = await withTimeout(worker.recognize(dataUrl), 100_000);
     await worker.terminate();
     const text = data.text?.trim() ?? "";
     return text.length >= 40
