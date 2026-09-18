@@ -37,12 +37,13 @@ export function SiteHeader() {
     };
   }, [pathname]);
 
+  // Dashboard & Notifications have no text links in the navbar.
+  // Notifications stays reachable through the bell icon below,
+  // Dashboard through the Settings page and quick actions.
   const links = [
     { href: "/", label: t.nav_home, active: pathname === "/" },
     { href: "/analyze", label: t.nav_analyze, active: pathname === "/analyze" },
-    { href: "/dashboard", label: t.nav_dashboard, active: pathname === "/dashboard" },
     { href: "/notices", label: t.nav_notices, active: pathname.startsWith("/notices") },
-    { href: "/notifications", label: t.nav_notifications, active: pathname === "/notifications" },
   ];
 
   return (
