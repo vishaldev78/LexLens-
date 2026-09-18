@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ClipboardPaste,
@@ -18,16 +18,23 @@ import {
   Home,
   CheckCircle2,
   FileUp,
+  Brain,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
 import { SAMPLES } from "@/lib/lexlens/samples";
 import { LOCALE_LABELS, OUTPUT_LOCALES } from "@/lib/lexlens/types";
+import dynamic from "next/dynamic";
+
+const TesseractWorker = dynamic(
+  () => import("tesseract.js").then((mod) => mod.createWorker),
+  { ssr: false, loading: () => null }
+);
 
 type Tab = "paste" | "file" | "samples";
 
 const SAMPLE_ICONS = [Landmark, Scale, Home];
 
-const MAX_MB = 10;
+const MAX_MB = 4;
 const ACCEPT_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const ACCEPT_EXTS = new Set(["png", "jpg", "jpeg", "webp"]);
 const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp";
@@ -86,6 +93,36 @@ export default function AnalyzePage() {
     setPicked({ name: f.name, size: f.size, type: f.type || f.name.split(".").pop()?.toUpperCase() || "file", file: f });
   }
 
+  // Client-side OCR with Tesseract.js (runs in browser, no server needed)
+  const [ocrProgress, setOcrProgress] = useState<{ status: string; progress: number } | null>(null);
+  const [ocrText, setOcrText] = useState<string>("");
+
+  const runOcr = useCallback(async (file: File): Promise<string> => {
+    const worker = await TesseractWorker();
+    if (!worker) throw new Error("Tesseract failed to load");
+
+    setOcrProgress({ status: "Loading OCR engine...", progress: 0 });
+
+    await worker.loadLanguage("eng");
+    await worker.initialize("eng");
+
+    setOcrProgress({ status: "Reading image...", progress: 0 });
+
+    const { data } = await worker.recognize(file, {
+      logger: (m: { status: string; progress: number }) => {
+        if (m.status === "recognizing text") {
+          setOcrProgress({ status: "Extracting text...", progress: Math.round(m.progress * 100) });
+        }
+      },
+    });
+
+    await worker.terminate();
+
+    const text = data.text?.trim() ?? "";
+    setOcrProgress(null);
+    return text;
+  }, []);
+
   /** Upload via XHR for real progress events. */
   function uploadWithProgress(f: File): Promise<{ noticeId: string }> {
     return new Promise((resolve, reject) => {
@@ -129,13 +166,26 @@ export default function AnalyzePage() {
     setStarting(true);
     setProgress(0);
     try {
-      const { noticeId } = await uploadWithProgress(picked.file);
+      // Step 1: Run OCR in browser (client-side, free, no API key)
+      setOcrProgress({ status: "Starting OCR...", progress: 0 });
+      const extractedText = await runOcr(picked.file);
+      
+      if (extractedText.length < 40) {
+        setError("Could not read enough text from this image. Please try a clearer image or paste the text manually.");
+        setStarting(false);
+        return;
+      }
+
+      setProgress(50);
+      // Step 2: Send extracted text to API (small JSON, no file upload issues)
+      const id = await createFromText(picked.name, "image", extractedText);
       setProgress(100);
-      router.push(`/processing?id=${noticeId}`);
+      router.push(`/processing?id=${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : t.cm_error);
       setStarting(false);
       setProgress(null);
+      setOcrProgress(null);
     }
   }
 
@@ -348,6 +398,20 @@ export default function AnalyzePage() {
                     e.target.value = "";
                   }}
                 />
+              </div>
+            )}
+
+            {/* OCR Progress Display (client-side) */}
+            {tab === "file" && ocrProgress && (
+              <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
+                  <Brain className="h-4 w-4" />
+                  <span>{ocrProgress.status}</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100">
+                  <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${ocrProgress.progress}%` }} />
+                </div>
+                <div className="mt-1.5 text-[11px] font-mono text-indigo-600">{ocrProgress.progress}%</div>
               </div>
             )}
 
