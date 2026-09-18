@@ -140,10 +140,12 @@ async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | nul
 async function renderPdfPages(buf: Buffer): Promise<Buffer[]> {
   const { createCanvas } = await import("@napi-rs/canvas");
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  // Use CDN worker to avoid missing pdf.worker.mjs in Vercel deployment.
-  // The version must match the installed pdfjs-dist version.
-  const PDFJS_VERSION = "6.3.289";
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.worker.min.mjs`;
+  // Vercel's Node.js doesn't support https: URLs for ESM worker loading.
+  // Import worker as module and create blob URL.
+  const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  const workerBlob = new Blob([workerModule.default], { type: "application/javascript" });
+  const workerUrl = URL.createObjectURL(workerBlob);
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buf),
     disableFontFace: true,
@@ -161,6 +163,7 @@ async function renderPdfPages(buf: Buffer): Promise<Buffer[]> {
     } as never).promise;
     pages.push(canvas.toBuffer("image/png"));
   }
+  URL.revokeObjectURL(workerUrl);
   return pages;
 }
 
