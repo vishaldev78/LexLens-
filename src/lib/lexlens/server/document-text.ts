@@ -132,6 +132,12 @@ async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | nul
     if (status === "401" || status === "403") {
       return { text: null, reason: "OCR credentials were rejected. Check ZAI_BASE_URL and ZAI_API_KEY in Vercel, then redeploy." };
     }
+    if (status === "429" && message.includes("1113")) {
+      return { text: null, reason: "Z AI OCR is out of balance or has no resource package. Recharge the Z AI account, or configure another OCR provider." };
+    }
+    if (status === "429") {
+      return { text: null, reason: "Z AI OCR is temporarily rate-limited. Please wait a moment and try again." };
+    }
     if (status === "404") {
       return { text: null, reason: "The configured Z AI OCR endpoint or model was not found. Check ZAI_BASE_URL in Vercel." };
     }
@@ -146,11 +152,10 @@ async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | nul
 async function renderPdfPages(buf: Buffer): Promise<Buffer[]> {
   const { createCanvas } = await import("@napi-rs/canvas");
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  // Vercel's file tracing can omit pdf.worker.mjs when PDF.js resolves it via
-  // its relative fallback. Registering the explicit module keeps this server
-  // path independent of a worker file on disk.
-  const pdfWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-  (globalThis as typeof globalThis & { pdfjsWorker?: typeof pdfWorker }).pdfjsWorker = pdfWorker;
+  // Use CDN worker to avoid missing pdf.worker.mjs in Vercel deployment.
+  // The version must match the installed pdfjs-dist version.
+  const PDFJS_VERSION = "6.3.289";
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.worker.min.mjs`;
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buf),
     disableFontFace: true,

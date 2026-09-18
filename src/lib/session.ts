@@ -60,16 +60,18 @@ export async function cleanupIfDue(force = false): Promise<void> {
   try {
     // Remove uploaded files that belong to expired records (private temp
     // storage lives under uploads/<sessionId>/ — never public, PRD §26).
-    const deadNotices = await db.notice.findMany({
-      where: { expiresAt: { lt: expired } },
-      select: { filePath: true },
-      take: 200,
-    });
-    const deadEvidence = await db.evidence.findMany({
-      where: { expiresAt: { lt: expired } },
-      select: { storedPath: true },
-      take: 200,
-    });
+    const [deadNotices, deadEvidence] = await Promise.all([
+      db.notice.findMany({
+        where: { expiresAt: { lt: expired } },
+        select: { filePath: true },
+        take: 200,
+      }),
+      db.evidence.findMany({
+        where: { expiresAt: { lt: expired } },
+        select: { storedPath: true },
+        take: 200,
+      }),
+    ]);
     for (const rel of [...deadNotices.map((n) => n.filePath), ...deadEvidence.map((e) => e.storedPath)]) {
       if (!rel) continue;
       const abs = path.join(process.cwd(), "uploads", rel);
@@ -77,12 +79,15 @@ export async function cleanupIfDue(force = false): Promise<void> {
     }
 
     // Row-level expiry for records whose session is still alive.
-    await db.notice.deleteMany({ where: { expiresAt: { lt: expired } } });
-    await db.analysisReport.deleteMany({ where: { expiresAt: { lt: expired } } });
-    await db.evidence.deleteMany({ where: { expiresAt: { lt: expired } } });
-    await db.responseDraft.deleteMany({ where: { expiresAt: { lt: expired } } });
-    await db.lawyerBrief.deleteMany({ where: { expiresAt: { lt: expired } } });
-    await db.reminder.deleteMany({ where: { expiresAt: { lt: expired } } });
+    // Batch delete operations to reduce connection pool pressure.
+    await Promise.all([
+      db.notice.deleteMany({ where: { expiresAt: { lt: expired } } }),
+      db.analysisReport.deleteMany({ where: { expiresAt: { lt: expired } } }),
+      db.evidence.deleteMany({ where: { expiresAt: { lt: expired } } }),
+      db.responseDraft.deleteMany({ where: { expiresAt: { lt: expired } } }),
+      db.lawyerBrief.deleteMany({ where: { expiresAt: { lt: expired } } }),
+      db.reminder.deleteMany({ where: { expiresAt: { lt: expired } } }),
+    ]);
     // Expired sessions cascade-delete their notices → reports/evidence/etc.
     await db.analysisSession.deleteMany({ where: { expiresAt: { lt: expired } } });
   } catch (err) {
@@ -105,13 +110,15 @@ export async function getOrCreateSession(): Promise<AnonymousSession> {
     if (existing && existing.expiresAt.getTime() > Date.now()) {
       // Sliding expiry + keep records alive with the session.
       const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-      await db.analysisSession.update({ where: { id }, data: { expiresAt, updatedAt: new Date() } });
-      await db.notice.updateMany({ where: { sessionId: id }, data: { expiresAt } });
-      await db.analysisReport.updateMany({ where: { sessionId: id }, data: { expiresAt } });
-      await db.evidence.updateMany({ where: { sessionId: id }, data: { expiresAt } });
-      await db.responseDraft.updateMany({ where: { sessionId: id }, data: { expiresAt } });
-      await db.lawyerBrief.updateMany({ where: { sessionId: id }, data: { expiresAt } });
-      await db.reminder.updateMany({ where: { sessionId: id }, data: { expiresAt } });
+      await Promise.all([
+        db.analysisSession.update({ where: { id }, data: { expiresAt, updatedAt: new Date() } }),
+        db.notice.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+        db.analysisReport.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+        db.evidence.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+        db.responseDraft.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+        db.lawyerBrief.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+        db.reminder.updateMany({ where: { sessionId: id }, data: { expiresAt } }),
+      ]);
       void cleanupIfDue();
       return { id: existing.id, createdAt: existing.createdAt, expiresAt };
     }
