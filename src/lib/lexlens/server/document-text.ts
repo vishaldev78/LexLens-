@@ -83,9 +83,6 @@ async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult
     // project/home-directory config lookup for local development.
     const baseUrl = process.env.ZAI_BASE_URL?.trim();
     const apiKey = process.env.ZAI_API_KEY?.trim();
-    const zai = baseUrl && apiKey
-      ? new (ZAI as unknown as new (config: { baseUrl: string; apiKey: string }) => Awaited<ReturnType<typeof ZAI.create>>)({ baseUrl, apiKey })
-      : await ZAI.create();
     const mime = kind === "pdf" ? "application/pdf" : `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
     const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
     const textPart = { type: "text" as const, text: "Extract ALL text from this legal document, preserving reading order. Output only the extracted text, no commentary." };
@@ -93,15 +90,35 @@ async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult
       kind === "pdf"
         ? [textPart, { type: "file_url" as const, file_url: { url: dataUrl } }]
         : [textPart, { type: "image_url" as const, image_url: { url: dataUrl } }];
-    const res = await withTimeout(
-      zai.chat.completions.createVision({
+
+    let res: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }> };
+    if (baseUrl && apiKey) {
+      // The public Z AI API uses the OpenAI-compatible endpoint. The SDK's
+      // createVision helper targets a separate /chat/completions/vision route.
+      const response = await withTimeout(fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "glm-4.5v",
+          messages: [{ role: "user", content }],
+          thinking: { type: "disabled" },
+        }),
+      }), 45_000);
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 300);
+        throw new Error(`Z AI vision request failed (${response.status}): ${detail}`);
+      }
+      res = (await response.json()) as typeof res;
+    } else {
+      const zai = await ZAI.create();
+      res = await withTimeout(zai.chat.completions.createVision({
         model: "glm-4.5v",
         messages: [{ role: "user", content }],
         thinking: { type: "disabled" },
-      }),
-      45_000,
-    );
-    const text = (res.choices?.[0]?.message?.content ?? "").trim();
+      }), 45_000) as typeof res;
+    }
+    const message = res.choices?.[0]?.message?.content ?? "";
+    const text = (typeof message === "string" ? message : message.map((part) => part.text ?? "").join(" ")).trim();
     return text.length >= 40
       ? { text }
       : { text: null, reason: "The OCR service returned no readable text." };
