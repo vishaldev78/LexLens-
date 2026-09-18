@@ -1,7 +1,13 @@
-// LexLens — production schema (SQLite).
-// Every user-owned row carries userId and is always queried through the
-// data-access helpers so scoping is enforced at the data layer. LexLens runs
-// as a single local workspace: all rows belong to the one "local" user.
+// LexLens — anonymous-session schema (SQLite).
+//
+// PRD (anonymous SaaS): there are NO user accounts and NO permanent history.
+// Every piece of analysis data belongs to a temporary ANONYMOUS SESSION:
+//   • AnalysisSession rows are keyed by a SHA-256 hash of the browser's
+//     random session token (the raw token never touches the database).
+//   • Every temporary record carries sessionId + expiresAt and is ALWAYS
+//     queried through the data-access helpers, which verify session ownership
+//     before returning anything (a foreign id yields a privacy-preserving 404).
+//   • Expired records are purged automatically (see src/lib/session.ts).
 
 generator client {
   provider = "prisma-client-js"
@@ -12,42 +18,36 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String   @id @default(cuid())
-  username      String   @unique
-  email         String?  @unique
-  // Notification preferences (sensible defaults; user-tunable in Settings)
-  notifyEnabled Boolean  @default(true)
-  remind7       Boolean  @default(true)
-  remind3       Boolean  @default(true)
-  remind1       Boolean  @default(true)
-  remindDue     Boolean  @default(true)
-  remindOverdue Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+/// Temporary anonymous analysis session. `id` = SHA-256 of the session token.
+model AnalysisSession {
+  id        String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
 
-  notices       Notice[]
-  notifications Notification[]
-  drafts        ResponseDraft[]
-  briefs        LawyerBrief[]
-  evidences     Evidence[]
+  notices Notice[]
+
+  @@index([expiresAt])
 }
 
+/// The current analysis (a "case" being processed in this session only).
 model Notice {
   id               String    @id @default(cuid())
-  userId           String
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId        String
+  session          AnalysisSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   title            String
   sourceLabel      String    @default("")
   // pdf | png | jpg | jpeg | webp | text
   fileType         String    @default("text")
-  // Stored OUTSIDE public/ — served only through the authenticated file API.
+  // Stored OUTSIDE public/ — served only through the session-checked file API.
   filePath         String?
   fileMime         String?
   fileSize         Int?
   noticeText       String    @default("")
   noticeType       String    @default("other")
-  jurisdiction     String    @default("")
+  jurisdiction     String    @default("") // INDIA | USA | UNKNOWN ("")
+  jurisdictionSource String  @default("") // auto | user
+  legalDomain      String    @default("")
   noticeLanguage   String    @default("")
   severity         String    @default("yellow")
   claimedAmount    String?
@@ -63,90 +63,77 @@ model Notice {
   analysisStatus   String    @default("PENDING") // PENDING | READY | FAILED
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  expiresAt        DateTime
 
   report        AnalysisReport?
-  notifications Notification[]
-  reminders     Reminder[]
   drafts        ResponseDraft[]
   briefs        LawyerBrief[]
   evidences     Evidence[]
 
-  @@index([userId, createdAt])
+  @@index([sessionId, updatedAt])
+  @@index([expiresAt])
 }
 
+/// Temporary analysis result for the current session's notice.
 model AnalysisReport {
   id        String   @id @default(cuid())
   noticeId  String   @unique
   notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-  userId    String
-  baseData  String // JSON — CaseBase (facts, citations, localized blocks…)
+  sessionId String
+  baseData  String   // JSON — CaseBase (facts, citations, localized blocks…)
   metaJson  String   @default("{}") // internal processing metadata (never user-facing)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
+  expiresAt DateTime
 
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+/// Temporary evidence attached to the current session's notice.
 model Evidence {
   id         String   @id @default(cuid())
   noticeId   String
   notice     Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId  String
   name       String
   mimeType   String
   size       Int
   storedPath String?
   createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([noticeId])
+  @@index([sessionId])
+  @@index([expiresAt])
 }
 
-model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  noticeId  String?
-  notice    Notice?  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-  type      String // report_ready | analysis_failed | missing_info | deadline_7 | deadline_3 | deadline_1 | deadline_due | deadline_overdue
-  title     String
-  message   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId, isRead, createdAt])
-}
-
-// One row per (user, notice, type, deadline) — the UNIQUE constraint is the
-// duplicate-prevention mechanism for deterministic reminder generation.
-model Reminder {
-  id           String   @id @default(cuid())
-  userId       String
-  noticeId     String
-  notice       Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-  reminderType String // deadline_7 | deadline_3 | deadline_1 | deadline_due | deadline_overdue
-  deadlineDate DateTime
-  sentAt       DateTime @default(now())
-  createdAt    DateTime @default(now())
-
-  @@unique([userId, noticeId, reminderType, deadlineDate])
-}
-
+/// Temporary response draft for the current session's notice.
 model ResponseDraft {
   id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String
   noticeId  String
   notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   content   String
   source    String   @default("template") // ai | template
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([noticeId])
+  @@index([sessionId])
 }
 
+/// Temporary lawyer brief for the current session's notice.
 model LawyerBrief {
   id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String
   noticeId  String
   notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-  content   String // JSON — Brief
+  content   String   // JSON — Brief
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([noticeId])
+  @@index([sessionId])
 }

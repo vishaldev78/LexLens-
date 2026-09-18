@@ -1,9 +1,13 @@
 "use client";
 
+// LexLens — site header (anonymous tool, PRD §37).
+// No login, no signup, no account UI, no notification center: the product is
+// a focused flow — Analyze → Report → Download → Start New Analysis.
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { Scale, Menu, X, Globe, ChevronDown, Check, Bell } from "lucide-react";
+import { Scale, Menu, X, Globe, ChevronDown, Check } from "lucide-react";
 import { useLang } from "./language-provider";
 import { UI_LOCALES, UI_LOCALE_META, type UiLocale } from "@/lib/lexlens/ui-i18n";
 
@@ -12,7 +16,6 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
-  const [unread, setUnread] = useState(0);
   const langRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,27 +26,9 @@ export function SiteHeader() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Unread badge for the notification bell.
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/notifications?filter=unread", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { unreadCount?: number } | null) => {
-        if (!cancelled && d) setUnread(d.unreadCount ?? 0);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [pathname]);
-
-  // Dashboard & Notifications have no text links in the navbar.
-  // Notifications stays reachable through the bell icon below,
-  // Dashboard through the Settings page and quick actions.
   const links = [
     { href: "/", label: t.nav_home, active: pathname === "/" },
     { href: "/analyze", label: t.nav_analyze, active: pathname === "/analyze" },
-    { href: "/notices", label: t.nav_notices, active: pathname.startsWith("/notices") },
   ];
 
   return (
@@ -75,7 +60,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
-          {/* Language switcher */}
+          {/* Language switcher — English / हिन्दी only (PRD §39) */}
           <div className="relative" ref={langRef}>
             <button
               onClick={() => setLangOpen((v) => !v)}
@@ -112,20 +97,6 @@ export function SiteHeader() {
             )}
           </div>
 
-          {/* Notification bell */}
-          <Link
-            href="/notifications"
-            className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
-            aria-label={`${t.nav_bell}${unread ? ` (${unread} ${t.nt_unread_count})` : ""}`}
-          >
-            <Bell className="h-4.5 w-4.5" />
-            {unread > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            )}
-          </Link>
-
           {/* Mobile toggle */}
           <button
             className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
@@ -154,13 +125,6 @@ export function SiteHeader() {
                 {l.label}
               </Link>
             ))}
-            <Link
-              href="/settings"
-              onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              {t.nav_settings}
-            </Link>
           </nav>
         </div>
       )}

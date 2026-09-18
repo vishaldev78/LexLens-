@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
+import { getOrCreateSession, sessionExpiresAt } from "@/lib/session";
 import { getOwnedNotice, parseUserState } from "@/lib/lexlens/server/notices";
 import { MAX_UPLOAD_BYTES, ACCEPT_MESSAGE } from "@/lib/lexlens/server/document-text";
 
@@ -15,16 +15,16 @@ const EVIDENCE_MIMES = new Set(["application/pdf", "image/png", "image/jpeg", "i
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const form = await req.formData();
     const files = form.getAll("files").filter((f): f is File => f instanceof File);
     if (!files.length) return NextResponse.json({ error: "No files were received." }, { status: 400 });
 
-    const dir = path.join(UPLOAD_ROOT, user.id, "evidence", notice.id);
+    const dir = path.join(UPLOAD_ROOT, session.id, "evidence", notice.id);
     await mkdir(dir, { recursive: true });
 
     const saved: { id: string; name: string; size: number; type: string; addedAt: number }[] = [];
@@ -46,11 +46,12 @@ export async function POST(req: NextRequest, { params }: Params) {
       const row = await db.evidence.create({
         data: {
           noticeId: notice.id,
-          userId: user.id,
+          sessionId: session.id,
+          expiresAt: sessionExpiresAt(),
           name: f.name.slice(0, 160),
           mimeType: f.type || "application/octet-stream",
           size: f.size,
-          storedPath: `${user.id}/evidence/${notice.id}/${stored}`,
+          storedPath: `${session.id}/evidence/${notice.id}/${stored}`,
         },
       });
       saved.push({ id: row.id, name: row.name, size: row.size, type: row.mimeType, addedAt: row.createdAt.getTime() });
@@ -66,8 +67,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
     return NextResponse.json({ ok: true, evidence: saved });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] evidence failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] evidence failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not save the evidence files." }, { status: 500 });
   }
 }

@@ -1,0 +1,475 @@
+   540→  when: (ctx: ActionCtx) => boolean;
+   541→  title: L4;
+   542→  reason: L4;
+   543→  source_id: string | null;
+   544→}
+   545→
+   546→export const ACTION_TEMPLATES: Record<string, ActionTemplate[]> = {
+   547→  cheque_bounce: [
+   548→    {
+   549→      key: "confirm_receipt", priority: 1, source_id: "in_ni_138",
+   550→      when: (c) => c.missing.includes("receipt_date"),
+   551→      title: l4("Confirm when the notice was received", "पुष्टि करें कि नोटिस कब प्राप्त हुआ", "确认何时收到该通知", "Confirmer la date de réception du constat"),
+   552→      reason: l4(
+   553→        "The statutory response period depends on receipt of the notice, so the exact deadline cannot be calculated until this date is confirmed.",
+   554→        "वैधानिक जवाबी अवधि नोटिस प्राप्ति पर निर्भर है, इसलिए यह तिथि पुष्ट हुए बिना सटीक समा-सीमा नहीं निकल सकती।",
+   555→        "法定答复期限自收到通知起算，因此在确认该日期之前无法计算确切截止日。",
+   556→        "Le délai légal dépend de la réception du constat : le délai exact ne peut être calculé sans cette date.",
+   557→      ),
+   558→    },
+   559→    {
+   560→      key: "verify_cheque", priority: 2, source_id: null,
+   561→      when: () => true,
+   562→      title: l4("Verify the cheque and bank details", "चेक और बैंक विवरण जांचें", "核对支票与银行信息", "Vérifier le chèque et les données bancaires"),
+   563→      reason: l4(
+   564→        "Check the cheque number, date, bank and amount against your own records before responding to the claim.",
+   565→        "दावे का जवाब देने से पहले चेक संख्या, तारीख, बैंक और राशि अपने रिकॉर्ड से मिलाएँ।",
+   566→        "在回应索赔之前，先将支票号码、日期、银行和金额与您自己的记录核对。",
+   567→        "Vérifiez numéro, date, banque et montant avec vos propres documents avant de répondre.",
+   568→      ),
+   569→    },
+   570→    {
+   571→      key: "preserve_documents", priority: 3, source_id: null,
+   572→      when: () => true,
+   573→      title: l4("Preserve all relevant documents", "सभी प्रासंगिक दस्तावेज़ सुरक्षित रखें", "保存所有相关文件", "Conserver tous les documents pertinents"),
+   574→      reason: l4(
+   575→        "Keep the cheque, invoices, bank memos and this notice — they are the evidence base for any response or defence.",
+   576→        "चेक, इनवॉइस, बैंक मेमो और यह नोटिस संभालकर रखें — यही जवाब या बचाव का साक्ष्य आधार हैं।",
+   577→        "保存支票、发票、银行凭证及本通知——它们是任何答复或抗辩的证据基础。",
+   578→        "Conservez chèque, factures, mémos et le présent constat — ce sont les preuves de toute réponse ou défense.",
+   579→      ),
+   580→    },
+   581→    {
+   582→      key: "act_before_deadline", priority: 4, source_id: "in_ni_138",
+   583→      when: (c) => c.deadline_calculated,
+   584→      title: l4("Decide before the deadline: pay or prepare a response", "समा-सीमा से पहले तय करें: भुगतान या जवाब", "在截止日前决定：付款或准备答复", "Décider avant l'échéance : payer ou préparer une réponse"),
+   585→      reason: l4(
+   586→        "Paying the claimed amount within the statutory window closes the §138 exposure; otherwise a written response through a lawyer is the usual next step.",
+   587→        "वैधानिक अवधि में राशि चुकाने से §138 का जोखिम समाप्त हो जाता है; अन्यथा अगला सामान्य कदम वकील के जरिए लिखित जवाब है।",
+   588→        "在法定期限内付款可消除第138条风险；否则下一步通常是由律师起草书面答复。",
+   589→        "Payer dans le délai légal éteint l'exposition à l'art. 138 ; sinon, l'étape suivante usuelle est une réponse écrite via un avocat.",
+   590→      ),
+   591→    },
+   592→    {
+   593→      key: "consult_lawyer", priority: 5, source_id: "in_ni_138",
+   594→      when: (c) => c.severity === "red",
+   595→      title: l4("Review the claim with a qualified lawyer", "योग्य वकील से दावा समीक्षा कराएँ", "与合格律师研究该索赔", "Faire examiner la créance par un avocat qualifié"),
+   596→      reason: l4(
+   597→        "§138 notices carry criminal exposure while unpaid — a lawyer should review the documents before the window closes.",
+   598→        "§138 नोटिस में अवैतनिक अवस्था में आपराधिक जोखिम होता है — अवधि समाप्त होने से पहले वकील से दस्तावेज़ समीक्षा कराएँ।",
+   599→        "第138条通知在未付款期间涉及刑事风险——应在期限届满前由律师审阅文件。",
+   600→        "Les constats art. 138 exposent au pénal tant que c'est impayé — un avocat doit examiner les documents avant l'échéance.",
+   601→      ),
+   602→    },
+   603→  ],
+   604→  debt_collection: [
+   605→    {
+   606→      key: "confirm_receipt", priority: 1, source_id: "fdcpa_1692g",
+   607→      when: (c) => c.missing.includes("receipt_date"),
+   608→      title: l4("Confirm when the notice was received", "पुष्टि करें कि नोटिस कब प्राप्त हुआ", "确认何时收到该通知", "Confirmer la date de réception"),
+   609→      reason: l4(
+   610→        "The 30-day dispute and verification-request window runs from receipt of the notice.",
+   611→        "30-दिन की विवाद व अनुरोध अवधि नोटिस प्राप्ति से चलती है।",
+   612→        "30天争议及索取核实材料的期限自收到通知起算。",
+   613→        "Le délai de 30 jours pour contester et demander la vérification court à compter de la réception.",
+   614→      ),
+   615→    },
+   616→    {
+   617→      key: "request_validation", priority: 2, source_id: "fdcpa_1692g",
+   618→      when: () => true,
+   619→      title: l4("Request written verification of the debt", "कर्ज का लिखित सत्यापन मांगें", "要求对债务进行书面核实", "Demander une vérification écrite de la dette"),
+   620→      reason: l4(
+   621→        "A written dispute within the window obliges the collector to stop collection until it verifies the debt; you may also request the original creditor's name and address.",
+   622→        "अवधि में लिखित विवाद करने पर सत्यापन तक वसूली रुक जाती है; मूल लेनदार का नाम-पता भी मांगा जा सकता है।",
+   623→        "在期限内书面提出争议可迫使催收方暂停催收直至完成核实；同时可索取原始债权人名称与地址。",
+   624→        "Une contestation écrite dans le délai suspend le recouvrement jusqu'à vérification ; le nom et l'adresse du créancier initial peuvent aussi être demandés.",
+   625→      ),
+   626→    },
+   627→    {
+   628→      key: "check_statements", priority: 3, source_id: null,
+   629→      when: () => true,
+   630→      title: l4("Match the claimed amount to your own records", "दावे की राशि अपने रिकॉर्ड से मिलाएँ", "将所主张金额与自己的记录核对", "Rapprocher le montant réclamé de vos relevés"),
+   631→      reason: l4(
+   632→        "Compare the balance and fees claimed against your statements before agreeing to anything.",
+   633→        "कुछ भी स्वीकार करने से पहले दावे वाली राशि व शुल्क अपने विवरण से मिलाएँ।",
+   634→        "在同意任何方案之前，先核对所主张的余额与费用是否与账单一致。",
+   635→        "Comparez le solde et les frais réclamés avec vos relevés avant tout accord.",
+   636→      ),
+   637→    },
+   638→    {
+   639→      key: "consult_lawyer", priority: 4, source_id: "ny_cplr_320",
+   640→      when: (c) => c.severity === "red",
+   641→      title: l4("Consult a lawyer about the threatened court action", "धमकी वाली अदालती कार्रवाई पर वकील से सलाह लें", "就威胁的诉讼咨询律师", "Consulter un avocat au sujet de l'action menacée"),
+   642→      reason: l4(
+   643→        "The letter refers the matter to court where a default judgment can be enforced by wage garnishment — get advice before that stage.",
+   644→        "पत्र मामला अदालत जाने की बात करता है, जहाँ पूर्वनिर्णय से वेतन कटौती हो सकती है — उस स्थिति से पहले सलाह लें।",
+   645→        "信中提及将诉诸法院，缺席判决可能导致工资扣划——应在此之前寻求建议。",
+   646→        "La lettre évoque une action en justice où un jugement par défaut peut être exécuté par saisie — consultez avant ce stade.",
+   647→      ),
+   648→    },
+   649→  ],
+   650→  eviction: [
+   651→    {
+   652→      key: "confirm_notification", priority: 1, source_id: "es_lec_22",
+   653→      when: (c) => c.missing.includes("court_notification_date"),
+   654→      title: l4("Confirm whether an eviction claim has been notified yet", "पुष्टि करें कि बेदखली मुकदमा अधिसूचित हुआ या नहीं", "确认驱逐诉讼是否已送达", "Confirmer si une demande d'expulsion a été notifiée"),
+   655→      reason: l4(
+   656→        "The 10-business-day enervación window only starts once the claim is notified — without that date the deadline cannot be calculated.",
+   657→        "10 कार्य-दिवस की enervación अवधि केवल मुकदमा अधिसूचित होने पर शुरू होती है — तिथि के बिना समा-सीमा नहीं निकल सकती।",
+   658→        "10个工作日的 enervación 期限自诉讼送达起算——没有该日期无法计算截止日。",
+   659→        "Le délai d'enervación de 10 jours ouvrables ne court qu'à compter de la notification — sans cette date, aucun calcul.",
+   660→      ),
+   661→    },
+   662→    {
+   663→      key: "check_arrears", priority: 2, source_id: "es_lau_27",
+   664→      when: () => true,
+   665→      title: l4("Check the arrears against rent receipts", "किराया रसीदों से बकाया जांचें", "用租金凭证核对欠款", "Vérifier les arriérés avec les quittances"),
+   666→      reason: l4(
+   667→        "Match the claimed unpaid months and amounts against your contract and payment receipts.",
+   668→        "दावे वाले महीने व राशि अपने अनुबंध व भुगतान रसीदों से मिलाएँ।",
+   669→        "将所主张的未付月份和金额与合同及付款凭证核对。",
+   670→        "Rapprochez les mois et montants réclamés du bail et de vos quittances.",
+   671→      ),
+   672→    },
+   673→    {
+   674→      key: "plan_payment", priority: 3, source_id: "es_lec_22",
+   675→      when: () => true,
+   676→      title: l4("Plan how to settle the arrears", "बकाया चुकाने की योजना बनाएँ", "规划清偿欠款", "Planifier le règlement des arriérés"),
+   677→      reason: l4(
+   678→        "Paying everything owed can stop a first eviction claim (enervación) if done within the statutory window after notification.",
+   679→        "अधिसूचना के बाद वैधानिक अवधि में पूरा बकाया चुकाने से पहली बेदखली कार्रवाई रुक सकती है (enervación)।",
+   680→        "在送达后的法定期限内付清全部欠款可阻止首次驱逐诉讼（enervación）。",
+   681→        "Payer tout ce qui est dû dans le délai légal après notification peut arrêter une première demande (enervación).",
+   682→      ),
+   683→    },
+   684→    {
+   685→      key: "consult_lawyer", priority: 4, source_id: "es_lec_22",
+   686→      when: (c) => c.severity === "red",
+   687→      title: l4("Consult a lawyer about the eviction claim", "बेदखली मुकदमे पर वकील से सलाह लें", "就驱逐诉讼咨询律师", "Consulter un avocat sur la demande d'expulsion"),
+   688→      reason: l4(
+   689→        "Home at risk: a lawyer can check enervation eligibility and represent you in the first-instance court.",
+   690→        "घर का जोखिम: वकील enervation पात्रता जांच सकता है और प्रथम-दृष्ट न्यायालय में आपका प्रतिनिधित्व कर सकता है।",
+   691→        "住房面临风险：律师可核查 enervación 资格并代理一审程序。",
+   692→        "Logement en jeu : un avocat peut vérifier l'éligibilité à l'enervación et vous représenter en première instance.",
+   693→      ),
+   694→    },
+   695→  ],
+   696→  court_summons: [
+   697→    {
+   698→      key: "confirm_hearing", priority: 1, source_id: "in_cpc_o9r6",
+   699→      when: (c) => c.missing.includes("hearing_date"),
+   700→      title: l4("Confirm the hearing / answer date", "सुनवाई / जवाब तिथि पुष्टि करें", "确认开庭/答辩日期", "Confirmer la date d'audience / de réponse"),
+   701→      reason: l4("The summons must state when to appear or answer — that date drives every next step.", "सम्मन में उपस्थिति/जवाब की तिथि होनी चाहिए — वही तिथि सब आगे के कदम तय करती है।", "传票应载明出庭或答辩日期——该日期决定后续所有安排。", "La citation doit indiquer la date de comparution — elle conditionne toute la suite."),
+   702→    },
+   703→    {
+   704→      key: "prepare_appearance", priority: 2, source_id: "in_cpc_o9r6",
+   705→      when: () => true,
+   706→      title: l4("Prepare to appear or file an answer", "उपस्थिति या जवाब की तैयारी करें", "准备出庭或提交答辩", "Préparer la comparution ou la réponse"),
+   707→      reason: l4("Organise your documents and consider engaging a lawyer before the stated date.", "बताई गई तिथि से पहले दस्तावेज़ सजाएँ और वकील पर विचार करें।", "在载明日期前整理文件并考虑聘请律师。", "Organisez vos documents et envisagez un avocat avant la date indiquée."),
+   708→    },
+   709→  ],
+   710→};
+   711→
+   712→const GENERIC_ACTIONS: ActionTemplate[] = [
+   713→  {
+   714→    key: "confirm_receipt", priority: 1, source_id: null,
+   715→    when: (c) => c.missing.includes("receipt_date"),
+   716→    title: l4("Confirm when the notice was received", "पुष्टि करें कि नोटिस कब प्राप्त हुआ", "确认何时收到该通知", "Confirmer la date de réception"),
+   717→    reason: l4("Response periods usually run from receipt — the exact deadline depends on this date.", "जवाबी अवधि सामान्यतः प्राप्ति से चलती है — सटीक समा-सीमा इसी तिथि पर निर्भर है।", "答复期限通常自收到起算——确切截止日取决于该日期。", "Les délais courent généralement de la réception — l'échéance exacte en dépend."),
+   718→  },
+   719→  {
+   720→    key: "gather_documents", priority: 2, source_id: null,
+   721→    when: () => true,
+   722→    title: l4("Gather documents related to the notice", "नोटिस से जुड़े दस्तावेज़ इकट्ठा करें", "收集与通知相关的文件", "Rassembler les documents liés au constat"),
+   723→    reason: l4("Contracts, receipts and correspondence are the evidence base for any response.", "अनुबंध, रसीदें और पत्राचार ही किसी जवाब का साक्ष्य आधार हैं।", "合同、凭证与往来函件是任何答复的证据基础。", "Contrats, reçus et courriers constituent la base de preuve de toute réponse."),
+   724→  },
+   725→  {
+   726→    key: "respond_before_deadline", priority: 3, source_id: null,
+   727→    when: (c) => c.deadline_calculated,
+   728→    title: l4("Respond in writing before the deadline", "समा-सीमा से पहले लिखित जवाब दें", "在截止日前书面答复", "Répondre par écrit avant l'échéance"),
+   729→    reason: l4("A dated, written response preserves your position whatever you decide later.", "तय तिथि वाला लिखित जवाब बाद के किसी भी निर्णय में आपकी स्थिति सुरक्षित रखता है।", "注明日期的书面答复可在您后续决定时保留立场。", "Une réponse écrite datée préserve votre position, quelle que soit votre décision."),
+   730→  },
+   731→  {
+   732→    key: "consult_lawyer", priority: 4, source_id: null,
+   733→    when: (c) => c.severity === "red",
+   734→    title: l4("Consult a qualified lawyer", "योग्य वकील से सलाह लें", "咨询合格律师", "Consulter un avocat qualifié"),
+   735→    reason: l4("This notice is rated critical — a lawyer should review it before the deadline.", "यह नोटिस गंभीर श्रेणी में है — समा-सीमा से पहले वकील से समीक्षा कराएँ।", "该通知被评定为紧急——应在截止日前请律师审阅。", "Ce constat est jugé critique — un avocat doit l'examiner avant l'échéance."),
+   736→  },
+   737→];
+   738→
+   739→export function actionsFor(type: NoticeType): ActionTemplate[] {
+   740→  return ACTION_TEMPLATES[type] ?? GENERIC_ACTIONS;
+   741→}
+   742→
+   743→/* position-aware extra actions (FEATURE 13) */
+   744→export const POSITION_ACTIONS: Partial<Record<UserPosition, ActionTemplate>> = {
+   745→  full_dispute: {
+   746→    key: "prepare_defence", priority: 2.5, source_id: null,
+   747→    when: () => true,
+   748→    title: l4("Prepare your defence file", "अपना बचाव फ़ाइल तैयार करें", "准备抗辩材料", "Préparer votre dossier de défense"),
+   749→    reason: l4(
+   750→      "Since you dispute the claim, collect every document that contradicts it — statements, receipts, correspondence — before drafting your reply.",
+   751→      "चूंकि आप दावे से असहमत हैं, जवाब लिखने से पहले हर वह दस्तावेज़ इकट्ठा करें जो उसके विपरीत है — विवरण, रसीदें, पत्राचार।",
+   752→      "由于您对索赔有异议，请在起草答复前收集所有与之相矛盾的材料——对账单、凭证、往来函件。",
+   753→      "La créance étant contestée, réunissez tout document contradictoire — relevés, reçus, courriers — avant de rédiger la réponse.",
+   754→    ),
+   755→  },
+   756→  already_paid: {
+   757→    key: "collect_payment_proof", priority: 2.5, source_id: null,
+   758→    when: () => true,
+   759→    title: l4("Collect proof of payment", "भुगतान का प्रमाण इकट्ठा करें", "收集付款证明", "Rassembler les preuves de paiement"),
+   760→    reason: l4(
+   761→      "Since you state the amount was already paid, bank confirmations or receipts are the key evidence to attach to your response.",
+   762→      "चूंकि आप कहते हैं कि राशि चुक गई, बैंक पुष्टि या रसीदें ही जवाब के साथ जोड़ने वाले मुख्य साक्ष्य हैं।",
+   763→      "由于您表示款项已付，银行确认单或收据是答复中应附的关键证据。",
+   764→      "Le paiement étant invoqué, les confirmations bancaires ou reçus sont les preuves clés à joindre à la réponse.",
+   765→    ),
+   766→  },
+   767→  partial_dispute: {
+   768→    key: "reconcile_amounts", priority: 2.5, source_id: null,
+   769→    when: () => true,
+   770→    title: l4("Build a line-by-line reconciliation", "राशि का वस्तुनिष्ठ मिलान बनाएँ", "逐项核对金额", "Établir un rapprochement détaillé"),
+   771→    reason: l4(
+   772→      "Since you dispute only part of the claim, a table matching each claimed item to your records makes the response precise.",
+   773→      "चूंकि आप दावे का केवल भाग अस्वीकार करते हैं, प्रत्येक मद को अपने रिकॉर्ड से मिलाने वाली तालिका जवाब को सटीक बनाती है।",
+   774→      "由于您仅对部分索赔有异议，逐项与记录核对的清单能让答复更精确。",
+   775→      "Ne contest qu'une partie : un rapprochement ligne à ligne rendra la réponse précise.",
+   776→    ),
+   777→  },
+   778→};
+   779→
+   780→/* ───────────────────────── lawyer questions (FEATURE 12) ───────────────────────── */
+   781→
+   782→export interface QuestionTemplate {
+   783→  key: string;
+   784→  when?: (ctx: ActionCtx) => boolean;
+   785→  text: L4;
+   786→}
+   787→
+   788→export const QUESTION_TEMPLATES: Record<string, QuestionTemplate[]> = {
+   789→  cheque_bounce: [
+   790→    { key: "enforceable_debt", text: l4("Was the cheque issued towards a legally enforceable debt, in your view?", "आपके अनुसार क्या चेक किसी विधिक रूप से प्रवर्तनीय देनदारी के लिए जारी हुआ था?", "您认为该支票是否用于合法可强制执行的债务？", "Le chèque couvrait-il, selon vous, une créance légalement exécutoire ?") },
+   791→    { key: "receipt_date", when: (c) => c.missing.includes("receipt_date"), text: l4("When was the notice actually received? (This sets the 15-day window.)", "नोटिस वास्तव में कब प्राप्त हुआ? (इसी से 15-दिन की अवधि तय होती है।)", "通知实际是何时收到的？（这决定15天期限的起算。）", "Quand le constat a-t-il été réellement reçu ? (Cela fixe le délai de 15 jours.)") },
+   792→    { key: "conditions_check", text: l4("Do your documents show the cheque was presented within 3 months and the notice sent within 30 days of the dishonour memo?", "क्या आपके दस्तावेज़ दिखाते हैं कि चेक 3 महीने में प्रस्तुत हुआ और अनादरण मेमो के 30 दिन में नोटिस गया?", "您的文件能否显示支票在3个月内提示、通知在退票凭证后30天内发出？", "Vos documents montrent-ils une présentation sous 3 mois et un constat sous 30 jours après le rejet ?") },
+   793→    { key: "partial_payment", when: (c) => c.position === "partial_dispute" || c.position === "full_dispute", text: l4("Has any part of the amount been paid, and what proof exists?", "क्या कोई राशि चुकी है, और उसका प्रमाण है?", "是否已支付过部分款项？有何凭证？", "Une partie du montant a-t-elle été payée, et avec quelles preuves ?") },
+   794→  ],
+   795→  debt_collection: [
+   796→    { key: "debt_valid", text: l4("Does the claimed balance match your own account records?", "क्या दावे वाली राशि आपके खाता विवरण से मेल खाती है?", "所主张的余额与您的账户记录是否一致？", "Le solde réclamé correspond-il à vos relevés ?") },
+   797→    { key: "within_window", when: (c) => c.missing.includes("receipt_date"), text: l4("When did you receive this letter? (The 30-day dispute window depends on it.)", "यह पत्र आपको कब मिला? (30-दिन की विवाद अवधि इसी पर निर्भर है।)", "您何时收到此信？（30天争议期由此起算。）", "Quand avez-vous reçu cette lettre ? (Le délai de 30 jours en dépend.)") },
+   798→    { key: "statute_barred", when: (c) => c.position === "full_dispute" || c.position === "dont_recognize", text: l4("Could the debt be time-barred or already settled? What records support that?", "क्या कर्ज समय-सीमा से बाहर है या चुक चुका है? इसके पक्ष में क्या रिकॉर्ड हैं?", "债务是否已过诉讼时效或已清偿？有哪些记录支持？", "La dette est-elle prescrite ou déjà réglée ? Quels justificatifs ?") },
+   799→  ],
+   800→  eviction: [
+   801→    { key: "enervar_eligible", text: l4("Has enervación been used before in this tenancy, or did the landlord send a prior payment demand more than 30 days ago?", "इस किरायेदारी में enervación पहले इस्तेमाल हुई है, या मकान मालिक ने 30 दिन से पहले भुगतान की मांग भेजी थी?", "本租赁中是否已用过 enervación？房东是否在30天前曾催告付款？", "L'enervación a-t-elle déjà été utilisée, ou une demande de paiement antérieure de plus de 30 jours existe-t-elle ?") },
+   802→    { key: "claim_notified", when: (c) => c.missing.includes("court_notification_date"), text: l4("Has an eviction lawsuit actually been served yet? If so, when?", "क्या बेदखली मुकदमा वास्तव में सौंपा गया है? यदि हाँ, तो कब?", "驱逐诉讼是否实际已送达？如是，何时？", "Une demande d'expulsion a-t-elle réellement été notifiée ? Si oui, quand ?") },
+   803→    { key: "arrears_correct", text: l4("Do the claimed unpaid months match your rent receipts?", "क्या दावे वाले बकाया महीने आपकी रसीदों से मेल खाते हैं?", "所主张的未付月份与您的租金凭证是否一致？", "Les mois réclamés correspondent-ils à vos quittances ?") },
+   804→  ],
+   805→};
+   806→
+   807→const GENERIC_QUESTIONS: QuestionTemplate[] = [
+   808→  { key: "facts_correct", text: l4("Are the sender, the amount and the dates in the notice correct according to your records?", "नोटिस में दिया भेजने वाला, राशि और तारीखें आपके रिकॉर्ड के अनुसार सही हैं?", "通知中的发送方、金额和日期与您的记录是否一致？", "L'expéditeur, le montant et les dates du constat sont-ils exacts selon vos documents ?") },
+   809→  { key: "deadline_feasible", text: l4("Is the stated response period feasible, and what would you need to respond by then?", "क्या बताई गई जवाबी अवधि पर्याप्त है, और तब तक जवाब के लिए क्या चाहिए?", "载明的答复期限是否可行？届时答复需要哪些材料？", "Le délai indiqué est-il tenable et de quoi aurez-vous besoin pour répondre ?") },
+   810→];
+   811→
+   812→export function questionsFor(type: NoticeType): QuestionTemplate[] {
+   813→  return QUESTION_TEMPLATES[type] ?? GENERIC_QUESTIONS;
+   814→}
+   815→
+   816→/* ───────────────────────── fallback response draft (FEATURE 14) ───────────────────────── */
+   817→
+   818→export interface DraftCtx {
+   819→  recipient: string | null;
+   820→  sender: string | null;
+   821→  amount: string | null;
+   822→  noticeDate: string | null;
+   823→  position: UserPosition | null;
+   824→  missing: string[];
+   825→  deadlineText: string | null;
+   826→}
+   827→
+   828→type DraftFn = (ctx: DraftCtx) => L4;
+   829→
+   830→export const DRAFT_TEMPLATES: Record<string, DraftFn> = {
+   831→  cheque_bounce: (c) => ({
+   832→    en: `Subject: Reply to legal notice dated ${c.noticeDate ?? "[PLACEHOLDER — USER INPUT REQUIRED: notice date]"}
+   833→
+   834→Dear ${c.sender ?? "[PLACEHOLDER — USER INPUT REQUIRED: sender name]"},
+   835→
+   836→I refer to your notice under Section 138 of the Negotiable Instruments Act demanding ${c.amount ?? "[PLACEHOLDER — USER INPUT REQUIRED: amount]"}.
+   837→
+   838→My position: ${positionLine(c.position, "en")} The notice was received on ${c.deadlineText ?? "[PLACEHOLDER — USER INPUT REQUIRED: receipt date]"}${c.deadlineText ? ", so the 15-day period is running from that date" : ""}.
+   839→
+   840→[Draft for review — not legal advice. Fill every placeholder and have a qualified lawyer review before sending.]
+   841→
+   842→Yours faithfully,
+   843→[PLACEHOLDER — USER INPUT REQUIRED: your name]`,
+   844→    hi: `विषय: ${c.noticeDate ?? "[स्थान-भरने योग्य — नोटिस तारीख]"} के कानूनी नोटिस का उत्तर
+   845→
+   846→महोदय ${c.sender ?? "[प्रेषक का नाम — उपयोगकर्ता इनपुट आवश्यक]"},
+   847→
+   848→आपके धारा 138 नोटिस में मांगी गई ${c.amount ?? "[राशि — उपयोगकर्ता इनपुट आवश्यक]"} के संदर्भ में।
+   849→
+   850→मेरी स्थिति: ${positionLine(c.position, "hi")} नोटिस ${c.deadlineText ?? "[प्राप्ति तिथि — उपयोगकर्ता इनपुट आवश्यक]"} को प्राप्त हुआ।
+   851→
+   852→[समीक्षा हेतु प्रारूप — कानूनी सलाह नहीं। प्रत्येक रिक्त स्थान भरें और भेजने से पहले योग्य वकील से समीक्षा कराएँ।]
+   853→
+   854→भवदीय,
+   855→[आपका नाम — उपयोगकर्ता इनपुट आवश्यक]`,
+   856→    zh: `主题：对${c.noticeDate ?? "[占位符——需用户填写：通知日期]"}法律通知的回复
+   857→
+   858→${c.sender ?? "[占位符——需用户填写：发件方]"}：
+   859→
+   860→就贵方依《流通票据法》第138条发出的、要求支付${c.amount ?? "[占位符——需用户填写：金额]"}的通知，回复如下。
+   861→
+   862→我的立场：${positionLine(c.position, "zh")}通知于${c.deadlineText ?? "[占位符——需用户填写：签收日期]"}收到。
+   863→
+   864→[草稿供审阅——非法律意见。请填写所有占位符，并在发送前由合格律师审阅。]
+   865→
+   866→此致
+   867→[占位符——需用户填写：您的姓名]`,
+   868→    fr: `Objet : Réponse au constat juridique du ${c.noticeDate ?? "[À COMPLÉTER : date du constat]"}
+   869→
+   870→Cher ${c.sender ?? "[À COMPLÉTER : expéditeur]"},
+   871→
+   872→Je fais référence à votre constat au titre de l'article 138 exigeant ${c.amount ?? "[À COMPLÉTER : montant]"}.
+   873→
+   874→Ma position : ${positionLine(c.position, "fr")} Le constat a été reçu le ${c.deadlineText ?? "[À COMPLÉTER : date de réception]"}.
+   875→
+   876→[Projet à examiner — ne constitue pas un avis juridique. Complétez chaque champ et faites relire par un avocat avant envoi.]
+   877→
+   878→Veuillez agréer mes salutations,
+   879→[À COMPLÉTER : votre nom]`,
+   880→  }),
+   881→};
+   882→
+   883→const GENERIC_DRAFT: DraftFn = (c) => ({
+   884→  en: `Subject: Reply to your notice dated ${c.noticeDate ?? "[PLACEHOLDER — USER INPUT REQUIRED: notice date]"}
+   885→
+   886→Dear ${c.sender ?? "[PLACEHOLDER — USER INPUT REQUIRED: sender name]"},
+   887→
+   888→I acknowledge receipt of your notice regarding ${c.amount ? `an amount of ${c.amount}` : "[PLACEHOLDER — USER INPUT REQUIRED: subject matter]"}.
+   889→
+   890→My position: ${positionLine(c.position, "en")}
+   891→
+   892→[Draft for review — not legal advice. Fill every placeholder and have a qualified lawyer review before sending.]
+   893→
+   894→Yours faithfully,
+   895→[PLACEHOLDER — USER INPUT REQUIRED: your name]`,
+   896→  hi: `विषय: ${c.noticeDate ?? "[नोटिस तारीख — उपयोगकर्ता इनपुट आवश्यक]"} के नोटिस का उत्तर
+   897→
+   898→महोदय ${c.sender ?? "[प्रेषक का नाम — उपयोगकर्ता इनपुट आवश्यक]"},
+   899→
+   900→आपके नोटिस (${c.amount ? `राशि ${c.amount}` : "[विषय — उपयोगकर्ता इनपुट आवश्यक]"}) की प्राप्ति स्वीकार है।
+   901→
+   902→मेरी स्थिति: ${positionLine(c.position, "hi")}
+   903→
+   904→[समीक्षा हेतु प्रारूप — कानूनी सलाह नहीं। प्रत्येक रिक्त स्थान भरें और वकील से समीक्षा कराएँ।]
+   905→
+   906→भवदीय,
+   907→[आपका नाम — उपयोगकर्ता इनपुट आवश्यक]`,
+   908→  zh: `主题：对${c.noticeDate ?? "[占位符——需用户填写：通知日期]"}通知的回复
+   909→
+   910→${c.sender ?? "[占位符——需用户填写：发件方]"}：
+   911→
+   912→已收悉贵方关于${c.amount ? `${c.amount}` : "[占位符——需用户填写：事项]"}的通知。
+   913→
+   914→我的立场：${positionLine(c.position, "zh")}
+   915→
+   916→[草稿供审阅——非法律意见。请填写所有占位符，并在发送前由合格律师审阅。]
+   917→
+   918→此致
+   919→[占位符——需用户填写：您的姓名]`,
+   920→  fr: `Objet : Réponse à votre constat du ${c.noticeDate ?? "[À COMPLÉTER : date]"}
+   921→
+   922→Cher ${c.sender ?? "[À COMPLÉTER : expéditeur]"},
+   923→
+   924→J'accuse réception de votre constat concernant ${c.amount ? `un montant de ${c.amount}` : "[À COMPLÉTER : objet]"}.
+   925→
+   926→Ma position : ${positionLine(c.position, "fr")}
+   927→
+   928→[Projet à examiner — ne constitue pas un avis juridique. Complétez chaque champ et faites relire par un avocat.]
+   929→
+   930→Veuillez agréer mes salutations,
+   931→[À COMPLÉTER : votre nom]`,
+   932→});
+   933→
+   934→function positionLine(position: UserPosition | null, locale: keyof L4): string {
+   935→  const map: Record<UserPosition, L4> = {
+   936→    agree: {
+   937→      en: "I acknowledge the claim and intend to settle it.",
+   938→      hi: "मैं दावा स्वीकार करता/करती हूँ और उसे सुलझाना चाहता/चाहती हूँ।",
+   939→      zh: "我认可该索赔并打算解决。",
+   940→      fr: "Je reconnais la créance et compte la régler.",
+   941→    },
+   942→    partial_dispute: {
+   943→      en: "I dispute part of the claimed amount; a reconciliation is attached.",
+   944→      hi: "मैं दावे के एक भाग से असहमत हूँ; मिलान विवरण संलग्न है।",
+   945→      zh: "我对部分索赔金额有异议，附上逐项核对表。",
+   946→      fr: "Je conteste une partie du montant réclamé ; un rapprochement est joint.",
+   947→    },
+   948→    full_dispute: {
+   949→      en: "I dispute the claim in full.",
+   950→      hi: "मैं पूरे दावे से असहमत हूँ।",
+   951→      zh: "我对全部索赔有异议。",
+   952→      fr: "Je conteste intégralement la créance.",
+   953→    },
+   954→    already_paid: {
+   955→      en: "The amount has already been paid; proof of payment is attached.",
+   956→      hi: "राशि भुगतान हो चुकी है; भुगतान प्रमाण संलग्न है।",
+   957→      zh: "款项已支付，随附付款凭证。",
+   958→      fr: "Le montant a déjà été payé ; preuve de paiement jointe.",
+   959→    },
+   960→    dont_recognize: {
+   961→      en: "I do not recognize this claim.",
+   962→      hi: "मैं इस दावे को नहीं पहचानता/पहचानती।",
+   963→      zh: "我不认可该索赔。",
+   964→      fr: "Je ne reconnais pas cette créance.",
+   965→    },
+   966→    unknown: {
+   967→      en: "I am still reviewing the claim.",
+   968→      hi: "मैं दावे की समीक्षा कर रहा/रही हूँ।",
+   969→      zh: "我仍在审查该索赔。",
+   970→      fr: "J'examine encore la créance.",
+   971→    },
+   972→  };
+   973→  const p = position ?? "unknown";
+   974→  return map[p][locale];
+   975→}
+   976→
+   977→export function draftFor(type: NoticeType): DraftFn {
+   978→  return DRAFT_TEMPLATES[type] ?? GENERIC_DRAFT;
+   979→}
+   980→
+   981→/* ───────────────────────── per-type validator patterns (FEATURE 8) ───────────────────────── */
+   982→
+   983→/** Statements that must never appear for this notice type (fabricated rights). */
+   984→export const FORBIDDEN_CLAIM_PATTERNS: Partial<Record<NoticeType, RegExp[]>> = {
+   985→  cheque_bounce: [
+   986→    /\b30\s*(days|day|दिन|天|jours)\b[^.]*(dispute|challenge|contest|विवाद|चुनौती|争议|contester|異议)/i,
+   987→    /(dispute|challenge|contest|विवाद|争议|contester)[^.]*\b30\s*(days|day|दिन|天|jours)\b/i,
+   988→    /(request|demand|obtain)[^.]*(creditor|drawer)[^.]*details[^.]*§?\s*138/i,
+   989→    /(creditor|drawer)[^.]*details[^.]*under[^.]*§?\s*138/i,
+   990→    /(धारा|section)\s*138[^.]*(लेनदार| creditor)[^.]*(विवरण|details)/i,
+   991→  ],
+   992→};
+   993→
+   994→/** Absolute / outcome-predicting language to soften (FEATURE 8/10). */
+   995→export const ABSOLUTE_PATTERNS: RegExp[] = [
+   996→  /\byou will (be arrested|be jailed|go to jail|definitely|certainly|surely)\b/i,
+   997→  /\byou will (lose|win)\b/i,
+   998→  /\b(definitely|certainly|guaranteed?)\b[^.]*\b(win|lose|convicted?|arrested?|jailed?)\b/i,
+   999→  /\ba case will definitely\b/i,
+  1000→  /\bwill definitely (be (arrested|jailed|convicted|sued))\b/i,
+  1001→  /\bआप (निश्चित|ज़रूर)\b[^.]*(गिरफ्तार|जेल|हार|जीत)/i,
+  1002→  /\b必然\b|\b一定会?被(捕|判)\b|\b你将会?败诉\b/i,
+  1003→  /\bvous serez (certainement|nécessairement|obligatoirement)\b/i,
+  1004→  /\bvous (allez|risquez de) (perdre|gagner) (à coup sûr|certainement)\b/i,
+  1005→];
+  1006→
+  1007→/** Conditional replacements shown when absolute language is softened. */
+  1008→export const CONDITIONAL_REPLACEMENT: L4 = l4(
+  1009→  "If the statutory requirements are satisfied and the matter proceeds, the court may impose the penalties allowed by the applicable provision.",
+  1010→  "यदि वैधानिक शर्तें पूरी हों और कार्रवाई आगे बढ़े, तो अदालत लागू प्रावधान द्वारा अनुमत दंड लगा सकती है।",
+  1011→  "如法定条件成就且程序继续，法院可处以适用条款所允许的处罚。",
+  1012→  "Si les conditions légales sont réunies et la procédure suit son cours, le tribunal peut prononcer les sanctions prévues par la disposition applicable.",
+  1013→);
+  1014→

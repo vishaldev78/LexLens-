@@ -142,3 +142,31 @@ Stage Summary:
 - LexLens is now a single private local workspace — no accounts anywhere in UI, API or schema
 - All SaaS features (dashboard, notices library, DB-backed reports, PDF, notifications, settings) work without login
 - Deadline chain fully deterministic + dynamic; PDF pipeline fixed end-to-end
+
+---
+Task ID: 4
+Agent: Super Z (main agent)
+Task: Anonymous session-based SaaS rewrite (PRD: no accounts/no history) + legal engine hardening (jurisdiction firewall, EN/HI only, canonical facts, deterministic deadlines)
+
+Work Log:
+- NOTE: an intermediate instruction round required real multi-user accounts (User A/B isolation); auth (scrypt + HMAC cookie + /login /signup + middleware) was reinstated, then the CURRENT instruction ("ANONYMOUS LEGAL NOTICE SAAS") superseded it — accounts were fully removed again in favor of anonymous sessions. All isolation guarantees were preserved at session level.
+- Schema (prisma/schema.prisma): dropped User/Notification/Reminder; added AnalysisSession (id = SHA-256 of the browser token, expiresAt); Notice/AnalysisReport/Evidence/ResponseDraft/LawyerBrief now carry sessionId + expiresAt with cascade deletes + indexes.
+- src/lib/session.ts (replaces auth.ts): 32-byte random token in HttpOnly/SameSite cookie; DB stores hash only; 24h sliding TTL; opportunistic cleanup sweep (cleanupIfDue, throttled 5 min) purges expired rows AND their uploaded files; revokeSession for "Start New Analysis".
+- API: deleted /api/auth/*, /api/dashboard, /api/notifications, /api/profile; added POST /api/session/new; all notice routes converted from userId to session-scoped ownership checks (getOwnedNotice returns privacy-preserving 404 for foreign/expired ids).
+- Legal engine hardening: deterministic type override (an Indian NI Act §138 notice is ALWAYS cheque_bounce — the LLM cannot classify it as debt collection); deterministic fact-merge safety net (regex extractor fills canonical facts the LLM misses, incl. Devanagari patterns for रु./चेक संख्या/दिनांक/पावती); draft generator guarantees "[Notice receipt date]" placeholder when the receipt date is missing (prompt rule + neutralization of invented dates).
+- UI: deleted /login /signup /dashboard /notices-library /notifications /settings pages + middleware; header is a minimal tool bar (Home / Analyze / EN-हिंदी switcher); report page gained "Start New Analysis" (POST /api/session/new + sessionStorage.clear + reload); landing hero = "Understand any legal notice in 60 seconds", anonymous positioning.
+- Languages: EN/HI only everywhere (ui-i18n reduced from 4 locale blocks, types Locale="en"|"hi", rules l4(en,hi) codemod — 179 calls, fallback-analyzer rewritten, PDF strings, draft LANG_NAME); "Important legal conditions and options" replaces the rights heading.
+- Jurisdiction: detectJurisdiction multi-signal (statutes, currency, cities, states, banks, courts, scripts) → INDIA|USA|UNKNOWN; UNKNOWN runs no rule pack and gates the report behind a confirm card (India/USA buttons → PATCH re-fires firewall + deadline recalc); FDCPA applicability assessed from facts (never assumed); US state law scoped (USA-New_York corpus source) with "State-specific legal rules could not be determined." fallback.
+- README + .env.example rewritten for the anonymous model.
+
+Verification (all green):
+- tsc --noEmit clean; eslint clean; npm run build success (route map: /, /analyze, /processing, /notices/[id], session-scoped APIs only; /login /dashboard → 404)
+- bun test-engine.ts: 38/38 (deadline 15d vs 30d, MISSING_REQUIRED_FACT, UNKNOWN→NO_RULE, firewall rejects cross-jurisdiction claims, classification Cheque Dishonour/§138, canonical facts, consistency gate, date math)
+- bun test-cleanup.ts: 7/7 (expired session+rows+cascade purged, live session survives)
+- node test-privacy.mjs: 27/27 (two anonymous sessions fully isolated; direct-ID attacks → 404 across report/PDF/file/draft/brief/analyze/patch/delete; forged token gets its own empty session; no auth endpoints exist; Start New Analysis revokes data)
+- node test-regression.mjs: 49/49 — India §138 fixed notice: INDIA + Cheque Dishonour/Section 138 Demand Notice + receipt 2026-09-19 + deadline 2026-10-04 (15 days) + zero FDCPA/U.S.C./CPLR/garnishment/"30-day dispute window"; US NY: USA/New York + FDCPA applicability=true + no NI Act; Hindi: same facts/deadline/language-neutral; missing-date: receipt not provided + cannot-calculate + UNKNOWN_DEADLINE + "[Notice receipt date]" draft placeholder
+- node test-pdf.mjs: 12/12 (session-scoped PDF excludes FDCPA/technical names, includes §138/₹85,000/4 Oct 2026 deadline)
+
+Stage Summary:
+- LexLens is now a fully anonymous, session-isolated legal-notice analysis tool: Landing → Upload/Paste → Analyze → Report → Download PDF → Start New Analysis; no accounts, no history, 24h TTL auto-expiry, server-side session firewall on every resource.
+- Legal isolation: INDIA/USA rule packs strictly separated with server-side claim rejection; deterministic deadlines from canonical facts; EN/HI presentation only.

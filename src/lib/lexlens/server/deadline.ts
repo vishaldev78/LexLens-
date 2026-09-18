@@ -5,9 +5,13 @@
 // server can (a) recalculate a stored deadline the moment the user supplies a
 // receipt date and (b) derive live statuses on every read. No LLM is ever
 // involved in date math. Nothing is invented: when the anchor date is unknown,
-// the deadline stays unknown.
+// the deadline stays unknown (MISSING_REQUIRED_FACT).
+//
+// JURISDICTION (PRD §4/§6/§11): the rule pack is selected by (jurisdiction ×
+// noticeType). The FDCPA rule only loads when its applicability was actually
+// established. UNKNOWN cases get no statutory rule at all.
 
-import { addDaysISO, daysBetween, isValidISO, todayISO } from "../deadline-engine";
+import { addDaysISO, calculateStatutoryDeadline, daysBetween, isValidISO, todayISO } from "../deadline-engine";
 import { DEADLINE_RULES } from "../rules";
 import type { CaseBase } from "../types";
 
@@ -26,6 +30,7 @@ export interface DerivedDeadline {
   sourceId: string | null;
   anchorDate: string | null;
   periodDays: number | null;
+  status: "CALCULATED" | "MISSING_REQUIRED_FACT" | "NO_RULE";
 }
 
 function isoFromDate(d: Date | null | undefined): string | null {
@@ -41,17 +46,21 @@ function factISO(base: CaseBase, key: string): string | null {
 
 /**
  * Recalculate the statutory deadline from stored data + a receipt date the
- * user just provided. Deterministic — mirrors DEADLINE_RULES exactly.
+ * user just provided. Deterministic — mirrors DEADLINE_RULES exactly through
+ * the canonical calculateStatutoryDeadline wrapper (PRD §10).
  */
 export function deriveDeadline(
   noticeType: string,
   base: CaseBase | null,
   receiptDateISO: string | null,
+  jurisdiction: "INDIA" | "USA" | "UNKNOWN" = "UNKNOWN",
+  debtRuleApplicable: boolean | null = null,
 ): DerivedDeadline {
-  const today = todayISO();
+  // 1. Statute rule pack for this (jurisdiction × type) — firewall enforced.
+  const pack = (DEADLINE_RULES[noticeType] ?? []).filter((r) => r.jurisdiction === jurisdiction);
+  const fdcpaGate = (r: (typeof pack)[number]) => !(r.source_id === "fdcpa_1692g" && debtRuleApplicable !== true);
+  const rule = pack.find(fdcpaGate);
 
-  // 1. Statute rule pack for known notice types.
-  const rule = DEADLINE_RULES[noticeType]?.[0];
   if (rule) {
     let anchorISO: string | null = null;
     if (rule.anchor_field === "receipt_date") anchorISO = receiptDateISO;
@@ -60,40 +69,45 @@ export function deriveDeadline(
       anchorISO = stated?.explicit_date ?? null;
     } else anchorISO = base ? factISO(base, rule.anchor_field) : null;
 
-    if (!anchorISO) {
-      return { deadlineDate: null, ruleLabel: rule.label.en, sourceId: rule.source_id, anchorDate: null, periodDays: rule.period_days };
-    }
-    const period = rule.period_days ?? base?.stated_deadlines?.[0]?.period_days ?? null;
-    if (!period || period <= 0) {
-      return { deadlineDate: null, ruleLabel: rule.label.en, sourceId: rule.source_id, anchorDate: anchorISO, periodDays: null };
-    }
-    return {
-      deadlineDate: addDaysISO(anchorISO, period, rule.business_days),
-      ruleLabel: rule.label.en,
+    const res = calculateStatutoryDeadline({
+      ruleId: rule.event_key,
+      triggerDate: anchorISO,
+      jurisdiction,
+      statutoryPeriod: rule.period_days ?? base?.stated_deadlines?.[0]?.period_days ?? null,
+      businessDays: rule.business_days,
       sourceId: rule.source_id,
-      anchorDate: anchorISO,
-      periodDays: period,
+      corpusVerified: !!rule.source_id,
+    });
+
+    return {
+      deadlineDate: res.deadline,
+      ruleLabel: rule.label.en,
+      sourceId: res.sourceId,
+      anchorDate: res.triggerDate,
+      periodDays: res.period,
+      status: res.status,
     };
   }
 
   // 2. Generic notices — fall back to what the notice itself states.
   const stated = base?.stated_deadlines?.[0];
-  if (stated) {
+  if (stated && jurisdiction !== "UNKNOWN") {
     if (stated.anchor === "explicit" && isValidISO(stated.explicit_date)) {
-      return { deadlineDate: stated.explicit_date, ruleLabel: "Date stated in the notice", sourceId: null, anchorDate: stated.explicit_date, periodDays: null };
+      return { deadlineDate: stated.explicit_date, ruleLabel: "Date stated in the notice", sourceId: null, anchorDate: stated.explicit_date, periodDays: null, status: "CALCULATED" };
     }
     const period = stated.period_days;
     if (period && period > 0) {
       if (stated.anchor === "notice") {
         const noticeISO = base ? factISO(base, "notice_date") : null;
-        if (noticeISO) return { deadlineDate: addDaysISO(noticeISO, period), ruleLabel: "Period stated in the notice", sourceId: null, anchorDate: noticeISO, periodDays: period };
+        if (noticeISO) return { deadlineDate: addDaysISO(noticeISO, period), ruleLabel: "Period stated in the notice", sourceId: null, anchorDate: noticeISO, periodDays: period, status: "CALCULATED" };
       } else if (receiptDateISO) {
-        return { deadlineDate: addDaysISO(receiptDateISO, period), ruleLabel: "Period stated in the notice", sourceId: null, anchorDate: receiptDateISO, periodDays: period };
+        return { deadlineDate: addDaysISO(receiptDateISO, period), ruleLabel: "Period stated in the notice", sourceId: null, anchorDate: receiptDateISO, periodDays: period, status: "CALCULATED" };
       }
+      return { deadlineDate: null, ruleLabel: "Period stated in the notice", sourceId: null, anchorDate: null, periodDays: period, status: "MISSING_REQUIRED_FACT" };
     }
   }
 
-  return { deadlineDate: null, ruleLabel: null, sourceId: null, anchorDate: null, periodDays: null };
+  return { deadlineDate: null, ruleLabel: null, sourceId: null, anchorDate: null, periodDays: null, status: "NO_RULE" };
 }
 
 /** Live, per-request status — countdowns are never persisted. */

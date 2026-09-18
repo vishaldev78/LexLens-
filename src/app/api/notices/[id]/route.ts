@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
-import { getOwnedNotice, parseUserState, recalcAndStoreDeadline, toSummary } from "@/lib/lexlens/server/notices";
+import { getOrCreateSession } from "@/lib/session";
+import {
+  CaseFactConsistencyError,
+  getOwnedNotice,
+  parseBase,
+  parseUserState,
+  recalcAndStoreDeadline,
+  toSummary,
+  validateCaseFactConsistency,
+} from "@/lib/lexlens/server/notices";
+import { validateAnalysis } from "@/lib/lexlens/validator";
+import { fillRulePackRights } from "@/lib/lexlens/server/analyze";
+import { classifyNotice, type CaseBase } from "@/lib/lexlens/types";
 import { todayISO } from "@/lib/lexlens/deadline-engine";
 import type { UserInputValue } from "@/lib/lexlens/types";
 
@@ -11,26 +22,28 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const report = await db.analysisReport.findUnique({ where: { noticeId: notice.id } });
     const draft = await db.responseDraft.findFirst({
-      where: { noticeId: notice.id, userId: user.id },
+      where: { noticeId: notice.id, sessionId: session.id },
       orderBy: { updatedAt: "desc" },
     });
     const brief = await db.lawyerBrief.findFirst({
-      where: { noticeId: notice.id, userId: user.id },
+      where: { noticeId: notice.id, sessionId: session.id },
       orderBy: { updatedAt: "desc" },
     });
     const evidence = await db.evidence.findMany({
-      where: { noticeId: notice.id, userId: user.id },
+      where: { noticeId: notice.id, sessionId: session.id },
       orderBy: { createdAt: "asc" },
     });
 
     const state = parseUserState(notice.userState);
+    // PRD §9 — refuse to serve an inconsistent report.
+    validateCaseFactConsistency(notice, state, report ? parseBase(report.baseData) : null);
     return NextResponse.json({
       notice: toSummary(notice, todayISO()),
       base: report ? parseBaseSafe(report.baseData) : null,
@@ -43,7 +56,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       noticeText: notice.noticeText,
     });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+        if (err instanceof CaseFactConsistencyError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     console.error("[lexlens/notices] get failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not load this notice." }, { status: 500 });
   }
@@ -59,9 +74,9 @@ function parseBaseSafe(json: string): unknown {
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const body = (await req.json().catch(() => ({}))) as {
@@ -69,8 +84,45 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       title?: string;
       completed?: boolean;
       position?: string | null;
+      jurisdiction?: "INDIA" | "USA";
       inputs?: Record<string, { value: string; iso: string | null; num: number | null }>;
     };
+
+    // PRD §3 — explicit jurisdiction confirmation (the UNKNOWN gate).
+    // Re-runs the jurisdiction firewall over the stored analysis and
+    // recalculates the deterministic deadline for the confirmed jurisdiction.
+    if (body.jurisdiction === "INDIA" || body.jurisdiction === "USA") {
+      const report = await db.analysisReport.findUnique({ where: { noticeId: notice.id } });
+      const base = parseBase(report?.baseData ?? null);
+      if (base) {
+        base.jurisdiction = {
+          ...base.jurisdiction,
+          country: body.jurisdiction,
+          confidence: 0.99,
+          userSelected: true,
+          signals: ["Selected by the user"],
+        };
+        base.debt_rule_applicable = base.notice_type === "debt_collection" && body.jurisdiction === "USA" ? base.debt_rule_applicable ?? null : null;
+        base.classification = classifyNotice(base.notice_type, body.jurisdiction, base.debt_rule_applicable);
+        fillRulePackRights(base);
+        const { base: validated } = validateAnalysis(base);
+        await db.analysisReport.update({
+          where: { noticeId: notice.id },
+          data: { baseData: JSON.stringify(validated) },
+        });
+        const jurUpdated = await db.notice.update({
+          where: { id: notice.id },
+          data: {
+            jurisdiction: body.jurisdiction,
+            jurisdictionSource: "user",
+            legalDomain: base.notice_type === "cheque_bounce" && body.jurisdiction === "INDIA" ? "CHEQUE_DISHONOUR" : notice.legalDomain || base.notice_type.toUpperCase(),
+            updatedAt: new Date(),
+          },
+        });
+        const recalced = await recalcAndStoreDeadline(jurUpdated, undefined);
+        return NextResponse.json({ notice: toSummary(recalced, todayISO()) });
+      }
+    }
 
     // Receipt date (or explicit clearing) → deterministic deadline recalculation.
     if (body.receiptDate !== undefined) {
@@ -117,23 +169,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const updated = await db.notice.update({ where: { id: notice.id }, data });
     return NextResponse.json({ notice: toSummary(updated, todayISO()) });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] patch failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] patch failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not update this notice." }, { status: 500 });
   }
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
     await db.notice.delete({ where: { id: notice.id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] delete failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] delete failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not delete this notice." }, { status: 500 });
   }
 }

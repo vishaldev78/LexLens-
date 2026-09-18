@@ -110,10 +110,10 @@ function ProcessingInner() {
                 <RotateCcw className="h-4 w-4" /> {t.pr_retry}
               </button>
               <Link
-                href="/notices"
+                href="/analyze"
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition-colors hover:border-indigo-300 hover:text-indigo-700"
               >
-                <ArrowLeft className="h-4 w-4" /> {t.nav_notices}
+                <ArrowLeft className="h-4 w-4" /> {t.an_title}
               </Link>
             </div>
           </div>

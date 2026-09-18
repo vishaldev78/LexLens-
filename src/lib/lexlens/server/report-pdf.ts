@@ -18,7 +18,6 @@ import type { CaseBase, Locale, UserCaseState } from "@/lib/lexlens/types";
 
 const FONT_DIR = path.join(process.cwd(), "assets", "fonts");
 const DEVANAGARI_FONT = path.join(FONT_DIR, "NotoSansDevanagari-Regular.ttf");
-const SC_FONT = path.join(FONT_DIR, "NotoSansSC-Regular.ttf");
 
 const INDIGO = "#4338CA";
 const INK = "#0F172A";
@@ -232,171 +231,29 @@ const PDF_STRINGS: Record<Locale, PdfStrings> = {
     generatedBy: "LexLens द्वारा निर्मित",
     questionsFor: "वकील से पूछने के प्रश्न",
   },
-  zh: {
-    reportTitle: "法律通知分析报告",
-    generatedOn: (d) => `生成日期：${d}`,
-    preparedFor: "报告对象",
-    noticeSummary: "通知摘要",
-    actionCenter: "行动中心",
-    nextActions: "建议的后续步骤",
-    timeline: "法律时间线",
-    keyFacts: "关键事实",
-    missingInfo: "缺失信息",
-    evidence: "案件证据",
-    legalBasis: "法律依据",
-    ifNothing: "如果我不采取行动会怎样？",
-    yourPosition: "您的立场",
-    responseDraft: "回复函草稿",
-    lawyerBrief: "律师简报",
-    disclaimer: "免责声明",
-    sources: "引用来源",
-    page: (n, m) => `第 ${n} 页 / 共 ${m} 页`,
-    footer: "LexLens — 法律信息，非法律意见",
-    fact: "事实",
-    value: "内容",
-    source: "来源",
-    confidence: "置信度",
-    noticeType: "通知类型",
-    jurisdiction: "管辖区",
-    noticeLanguage: "通知语言",
-    analysisDate: "分析日期",
-    severity: "严重程度",
-    claimedAmount: "索赔金额",
-    receiptDate: "签收日期",
-    exactDeadline: "确切截止日",
-    daysRemaining: "剩余天数",
-    deadlineUnknown: "尚无法计算",
-    cannotCalculate: (r) => `由于尚不知道${r}，无法计算确切截止日。`,
-    statusLabel: "状态",
-    analysisCompleted: "已完成",
-    sourcesChecked: "已核实",
-    noDeadline: "此类通知不适用法定截止日。",
-    noneMissing: "没有缺失的关键信息。",
-    available: "已有",
-    missingLabel: "缺失",
-    eventLabel: "事件",
-    dateLabel: "日期",
-    statusLabelShort: "状态",
-    notProvided: "未提供",
-    deadlineRule: "适用规则",
-    lawStatute: "法律 / 法规",
-    explanation: "说明",
-    noDraft: "此通知尚未生成回复函草稿。",
-    noBrief: "此通知尚未准备律师简报。",
-    positionLabels: {
-      agree: "认可——打算和解",
-      partial_dispute: "对部分金额有争议",
-      full_dispute: "对全部索赔有争议",
-      already_paid: "已经付款",
-      dont_recognize: "不认可此索赔",
-      unknown: "仍在了解中",
-    },
-    positionNone: "尚未说明。",
-    countdown: (d) => `剩余 ${d} 天`,
-    dueToday: "今天到期",
-    dueTomorrow: "明天到期",
-    overdueBy: (d) => `已逾期 ${d} 天`,
-    disclaimerFull:
-      "LexLens 提供法律信息与文书协助，不提供法律意见或法律代理。截止日期由基于已核实法规的确定性规则计算。涉及您的具体情况的决定，请咨询合资格律师或授权的法律援助机构。",
-    briefWarning: "这是供律师审阅的事实摘要，不构成法律意见。",
-    generatedBy: "由 LexLens 生成",
-    questionsFor: "请律师解答的问题",
-  },
-  fr: {
-    reportTitle: "Rapport d'analyse d'avis légal",
-    generatedOn: (d) => `Généré le ${d}`,
-    preparedFor: "Préparé pour",
-    noticeSummary: "Résumé de l'avis",
-    actionCenter: "Centre d'action",
-    nextActions: "Prochaines étapes recommandées",
-    timeline: "Chronologie légale",
-    keyFacts: "Faits clés",
-    missingInfo: "Informations manquantes",
-    evidence: "Preuves du dossier",
-    legalBasis: "Base légale",
-    ifNothing: "Que se passe-t-il si je ne fais rien ?",
-    yourPosition: "Votre position",
-    responseDraft: "Projet de réponse",
-    lawyerBrief: "Synthèse pour avocat",
-    disclaimer: "Avertissement",
-    sources: "Sources",
-    page: (n, m) => `Page ${n} sur ${m}`,
-    footer: "LexLens — information juridique, pas un avis juridique",
-    fact: "Fait",
-    value: "Valeur",
-    source: "Source",
-    confidence: "Confiance",
-    noticeType: "Type d'avis",
-    jurisdiction: "Juridiction",
-    noticeLanguage: "Langue de l'avis",
-    analysisDate: "Date d'analyse",
-    severity: "Gravité",
-    claimedAmount: "Montant réclamé",
-    receiptDate: "Date de réception",
-    exactDeadline: "Échéance exacte",
-    daysRemaining: "Jours restants",
-    deadlineUnknown: "Calcul impossible pour l'instant",
-    cannotCalculate: (r) => `L'échéance exacte ne peut être calculée car ${r} est inconnu.`,
-    statusLabel: "Statut",
-    analysisCompleted: "Terminée",
-    sourcesChecked: "Vérifiées",
-    noDeadline: "Aucune échéance légale ne s'applique à ce type d'avis.",
-    noneMissing: "Aucune information critique ne manque.",
-    available: "Disponible",
-    missingLabel: "Manquant",
-    eventLabel: "Événement",
-    dateLabel: "Date",
-    statusLabelShort: "Statut",
-    notProvided: "Non fournie",
-    deadlineRule: "Règle appliquée",
-    lawStatute: "Loi / texte",
-    explanation: "Explication",
-    noDraft: "Aucun projet de réponse n'a encore été généré pour cet avis.",
-    noBrief: "Aucune synthèse pour avocat n'a encore été préparée pour cet avis.",
-    positionLabels: {
-      agree: "D'accord — intention de régler",
-      partial_dispute: "Contestation partielle du montant",
-      full_dispute: "Contestation totale de la créance",
-      already_paid: "Déjà payé",
-      dont_recognize: "Ne reconnaît pas cette créance",
-      unknown: "Encore en examen",
-    },
-    positionNone: "Pas encore indiquée.",
-    countdown: (d) => `${d} jours restants`,
-    dueToday: "Échéance aujourd'hui",
-    dueTomorrow: "Échéance demain",
-    overdueBy: (d) => `En retard de ${d} jour${d === 1 ? "" : "s"}`,
-    disclaimerFull:
-      "LexLens fournit une information juridique et une assistance documentaire, pas des conseils juridiques ni une représentation légale. Les échéances sont calculées par des règles déterministes issues de textes vérifiés. Pour toute décision concernant votre situation, consultez un avocat qualifié ou un service d'aide juridique agréé.",
-    briefWarning: "Résumé factuel préparé pour examen par un avocat — ne constitue pas un avis juridique.",
-    generatedBy: "Généré par LexLens",
-    questionsFor: "Questions pour votre avocat",
-  },
 };
 
 const SEVERITY_PDF: Record<string, { label: Record<Locale, string>; color: string }> = {
-  red: { label: { en: "Critical", hi: "अत्यंत गंभीर", zh: "危急", fr: "Critique" }, color: "#DC2626" },
-  yellow: { label: { en: "Action needed", hi: "कार्रवाई आवश्यक", zh: "需要行动", fr: "Action requise" }, color: "#D97706" },
-  green: { label: { en: "Informational", hi: "सूचनात्मक", zh: "一般告知", fr: "Information" }, color: "#059669" },
+  red: { label: { en: "Critical", hi: "अत्यंत गंभीर" }, color: "#DC2626" },
+  yellow: { label: { en: "Action needed", hi: "कार्रवाई आवश्यक" }, color: "#D97706" },
+  green: { label: { en: "Informational", hi: "सूचनात्मक" }, color: "#059669" },
 };
 
 const NOTICE_TYPE_PDF: Record<string, Record<Locale, string>> = {
-  debt_collection: { en: "Debt collection", hi: "कर्ज वसूली", zh: "债务催收", fr: "Recouvrement de dette" },
-  cheque_bounce: { en: "Cheque bounce (NI Act)", hi: "चेक अनादरण (धारा 138)", zh: "支票退票（NI 法）", fr: "Chèque rejeté (NI Act)" },
-  eviction: { en: "Eviction / tenancy", hi: "बेदखली / किराया", zh: "驱逐 / 租赁", fr: "Expulsion / bail" },
-  consumer: { en: "Consumer dispute", hi: "उपभोक्ता विवाद", zh: "消费争议", fr: "Litige de consommation" },
-  tax: { en: "Tax notice", hi: "कर नोटिस", zh: "税务通知", fr: "Avis fiscal" },
-  employment: { en: "Employment", hi: "रोजगार", zh: "劳动雇佣", fr: "Emploi" },
-  court_summons: { en: "Court summons", hi: "न्यायालय सम्मन", zh: "法院传票", fr: "Citation à comparaître" },
-  other: { en: "Other notice", hi: "अन्य नोटिस", zh: "其他通知", fr: "Autre avis" },
+  debt_collection: { en: "Debt collection", hi: "कर्ज वसूली" },
+  cheque_bounce: { en: "Cheque Dishonour", hi: "चेक अनादरण" },
+  eviction: { en: "Eviction / tenancy", hi: "बेदखली / किराया" },
+  consumer: { en: "Consumer dispute", hi: "उपभोक्ता विवाद" },
+  tax: { en: "Tax notice", hi: "कर नोटिस" },
+  employment: { en: "Employment", hi: "रोजगार" },
+  court_summons: { en: "Court summons", hi: "न्यायालय सम्मन" },
+  other: { en: "Other notice", hi: "अन्य नोटिस" },
 };
 
 const LANGUAGE_PDF: Record<string, Record<Locale, string>> = {
-  en: { en: "English", hi: "अंग्रेज़ी", zh: "英语", fr: "Anglais" },
-  hi: { en: "Hindi", hi: "हिन्दी", zh: "印地语", fr: "Hindi" },
-  zh: { en: "Chinese", hi: "चीनी", zh: "中文", fr: "Chinois" },
-  fr: { en: "French", hi: "फ़्रेंच", zh: "法语", fr: "Français" },
-};
+  en: { en: "English", hi: "अंग्रेज़ी" },
+  hi: { en: "Hindi", hi: "हिन्दी" },
+  };
 
 function glyphCoverage(fontPath: string): { rupee: boolean } | null {
   try {
@@ -433,7 +290,7 @@ export async function generateNoticePdf(input: ReportInput): Promise<Buffer> {
   const S = PDF_STRINGS[locale];
   const today = todayISO();
 
-  const fontPath = locale === "hi" ? DEVANAGARI_FONT : locale === "zh" ? SC_FONT : null;
+  const fontPath = locale === "hi" ? DEVANAGARI_FONT : null;
   const coverage = fontPath ? glyphCoverage(fontPath) : null;
   const canRupee = locale === "hi" ? coverage?.rupee ?? false : false;
 
@@ -456,8 +313,8 @@ export async function generateNoticePdf(input: ReportInput): Promise<Buffer> {
     info: { Title: `${S.reportTitle} — ${input.noticeTitle}`, Author: "LexLens", Creator: "LexLens", Producer: "LexLens" },
   });
 
-  const fontRegular = locale === "en" || locale === "fr" ? "Helvetica" : "Custom";
-  const fontBold = locale === "en" || locale === "fr" ? "Helvetica-Bold" : "Custom";
+  const fontRegular = locale === "en" ? "Helvetica" : "Custom";
+  const fontBold = locale === "en" ? "Helvetica-Bold" : "Custom";
   if (fontPath) doc.registerFont("Custom", fontPath);
 
   const W = doc.page.width;
@@ -548,7 +405,17 @@ export async function generateNoticePdf(input: ReportInput): Promise<Buffer> {
   const block = input.base.localized[locale] ?? input.base.localized.en;
   kvTable([
     { label: S.noticeType, value: NOTICE_TYPE_PDF[input.noticeType]?.[locale] ?? input.noticeType },
-    { label: S.jurisdiction, value: input.jurisdiction || "—" },
+    {
+      label: S.jurisdiction,
+      value:
+        input.jurisdiction === "INDIA"
+          ? locale === "hi" ? "भारत" : "India"
+          : input.jurisdiction === "USA"
+            ? locale === "hi" ? "संयुक्त राज्य अमेरिका" : "United States"
+            : input.jurisdiction === "UNKNOWN"
+              ? locale === "hi" ? "निर्धारित नहीं हुआ" : "Not determined"
+              : input.jurisdiction || "—",
+    },
     { label: S.noticeLanguage, value: LANGUAGE_PDF[input.noticeLanguage]?.[locale] ?? input.base.language_detected ?? "—" },
     { label: S.analysisDate, value: fmtISO(today, locale) },
   ]);

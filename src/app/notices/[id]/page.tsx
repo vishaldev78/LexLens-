@@ -32,6 +32,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  Languages,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
 import { ActionCenter, BriefView, TimelineView } from "@/components/lexlens/case-widgets";
@@ -41,12 +42,12 @@ import { todayISO } from "@/lib/lexlens/deadline-engine";
 import { parseHumanDate } from "@/lib/lexlens/fallback-analyzer";
 import { CORPUS } from "@/lib/lexlens/corpus";
 import {
-  LOCALE_LABELS,
+  OUTPUT_LOCALES,
   LANGUAGE_NAMES,
-  emptyUserState,
+  LOCALE_LABELS,
   type CaseBase,
-  type Locale,
   type LocalizedBlock,
+  type Locale,
   type UserCaseState,
   type UserPosition,
 } from "@/lib/lexlens/types";
@@ -275,7 +276,7 @@ function ReportInner() {
   async function remove() {
     if (!window.confirm(tt.nl_confirm)) return;
     const res = await fetch(`/api/notices/${id}`, { method: "DELETE" });
-    if (res.ok) router.push("/notices");
+    if (res.ok) router.push("/analyze");
   }
 
   function downloadFile(name: string, content: string, mime = "text/plain") {
@@ -320,8 +321,8 @@ function ReportInner() {
         <FileText className="mx-auto h-10 w-10 text-slate-300" />
         <h1 className="mt-4 text-xl font-bold text-slate-900">{tt.rs_notfound_t}</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">{tt.rs_notfound_d}</p>
-        <Link href="/notices" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
-          {tt.nav_notices}
+        <Link href="/analyze" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
+          {tt.nav_analyze}
         </Link>
       </div>
     );
@@ -526,6 +527,20 @@ function ReportBody({
           <p className="mt-1 truncate text-sm text-slate-500">
             {n.title} · {view.jurisdiction_label}
           </p>
+          {/* PRD §14 — deterministic classification (never "debt collection" for a §138 notice) */}
+          <p className="mt-1.5 text-[13px] font-medium text-slate-600">
+            {tt.cls_primary}: <span className="font-bold text-slate-800">{view.classification.primary}</span>
+            {view.classification.subcategory && (
+              <>
+                {" · "}{tt.cls_sub}: <span className="font-bold text-slate-800">{view.classification.subcategory}</span>
+              </>
+            )}
+            {view.classification.secondary && (
+              <>
+                {" · "}{tt.cls_secondary}: <span className="text-slate-600">{view.classification.secondary}</span>
+              </>
+            )}
+          </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${
               n.status === "COMPLETED"
@@ -565,6 +580,18 @@ function ReportBody({
           <button onClick={actions.remove} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:border-red-300 hover:bg-red-50">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
+          {/* PRD §38 — Start New Analysis: fresh anonymous session, nothing carried over */}
+          <button
+            onClick={async () => {
+              await fetch("/api/session/new", { method: "POST" }).catch(() => {});
+              try { sessionStorage.clear(); } catch { /* private mode */ }
+              window.location.href = "/analyze"; // full reload clears all client-side state
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
+            title={tt.start_new_confirm}
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> {tt.start_new}
+          </button>
         </div>
       </div>
 
@@ -578,6 +605,51 @@ function ReportBody({
 
       {/* banners */}
       <div className="mt-4 space-y-3">
+        {/* PRD §3 — UNKNOWN jurisdiction gate: no substantive rules until confirmed */}
+        {base.jurisdiction.country === "UNKNOWN" && (
+          <div className="rounded-2xl border border-red-300 bg-red-50 p-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-extrabold text-red-800">{tt.jur_unknown_t}</div>
+                <p className="mt-1 text-sm leading-relaxed text-red-800/90">{tt.jur_unknown_d}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void actions.patchNotice({ jurisdiction: "INDIA" })}
+                    className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+                  >
+                    {tt.jur_india}
+                  </button>
+                  <button
+                    onClick={() => void actions.patchNotice({ jurisdiction: "USA" })}
+                    className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+                  >
+                    {tt.jur_usa}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* PRD §2 — unsupported notice language is disclosed, never silently analysed */}
+        {base.language_unsupported && (
+          <div className="flex items-start gap-3.5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <Languages className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <div className="text-sm font-extrabold text-amber-800">{tt.lang_unsupported}</div>
+              <p className="mt-1 text-sm leading-relaxed text-amber-800/90">
+                {tt.lang_detected}: {LANGUAGE_NAMES[base.language_detected] ?? base.language_detected}
+              </p>
+            </div>
+          </div>
+        )}
+        {/* PRD §11/§12 — applicability / state notes (only for a confirmed jurisdiction) */}
+        {view.jurisdiction_note && base.jurisdiction.country !== "UNKNOWN" && (
+          <div className="flex items-start gap-3.5 rounded-2xl border border-slate-300 bg-slate-50 p-4">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+            <p className="text-sm leading-relaxed text-slate-700">{view.jurisdiction_note}</p>
+          </div>
+        )}
         {base.overall_confidence < 0.75 && (
           <div className="flex items-start gap-3.5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -1062,11 +1134,11 @@ function DraftText({ text }: { text: string }) {
 function PlainLanguageCard({ base, locale, tt }: { base: CaseBase; locale: Locale; tt: TT }) {
   const [viewL, setViewL] = useState<Locale>(locale);
   const block: LocalizedBlock = base.localized[viewL] ?? base.localized.en;
-  const langCls = viewL === "hi" ? "lang-hi" : viewL === "zh" ? "lang-zh" : "";
+  const langCls = viewL === "hi" ? "lang-hi" : "";
   return (
     <SectionCard icon={ClipboardList} title={tt.rs_summary_t} sub={tt.rs_summary_hint}>
       <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Explanation language">
-        {(["en", "hi", "zh", "fr"] as Locale[]).map((l) => (
+        {OUTPUT_LOCALES.map((l) => (
           <button
             key={l}
             role="tab"

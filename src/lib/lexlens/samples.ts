@@ -1,7 +1,12 @@
 // LexLens — preloaded demo notices. FICTIONAL documents written to mirror
-// real-world formats for the hackathon demo (no real personal data).
-// Dates are generated RELATIVE TO TODAY so every demo run shows live
-// countdown chips ("26 days left") instead of stale "overdue" states.
+// real-world formats (no real personal data).
+//
+// PRD §7/§31: the India cheque notice uses the EXACT fixed test dates so the
+// regression test can assert canonical facts + the calculated deadline
+// (receipt 19 Sep 2026 + 15 days → 4 Oct 2026).
+// PRD §32: the US notice is a New York debt-collection validation letter.
+// PRD §33: the Hindi notice carries the same India facts in Hindi so the
+// language regression can assert language-neutral legal facts.
 
 export interface SampleNotice {
   id: string;
@@ -12,51 +17,77 @@ export interface SampleNotice {
   text: string;
 }
 
-/** ISO date offset by N days from today, in YYYY-MM-DD. */
-function d(offsetDays: number): string {
+/** Human date like "September 13, 2026" (en-US) offset from today. */
+function dUS(offsetDays: number): string {
   const t = new Date();
   t.setDate(t.getDate() + offsetDays);
-  return t.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long", year: "numeric" }).format(
+    new Date(`${t.toISOString().slice(0, 10)}T00:00:00Z`)
+  );
 }
 
-/** Human date like "September 13, 2026" (en-US). */
-function dUS(offsetDays: number): string {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${d(offsetDays)}T00:00:00Z`));
-}
+/** PRD §7 — India test notice (FIXED dates, receipt date stated). */
+const INDIA_CHEQUE_TEST = `BY REGISTERED POST A.D. / SPEED POST
+Ref. No.: SV/CL/2026-114
 
-/** Human date like "13 September 2026" (en-IN style). */
-function dIN(offsetDays: number): string {
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${d(offsetDays)}T00:00:00Z`));
-}
+Date: 18 September 2026
 
-/** Spanish long date: "13 de septiembre de 2026". */
-function dES(offsetDays: number): string {
-  const s = new Intl.DateTimeFormat("es-ES", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${d(offsetDays)}T00:00:00Z`));
-  return s.replace(/ de (\d)/, " de $1").replace("de 20", "de 20");
-}
+To,
+Mr. Rohan Mehta,
+A-704, Sunrise Residency, Powai,
+Mumbai – 400076.
 
-/** Spanish month+year like "julio de 2026" for rent months. */
-function monthES(offsetMonths: number): string {
-  const t = new Date();
-  t.setMonth(t.getMonth() + offsetMonths);
-  return new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric", timeZone: "UTC" }).format(t);
-}
+SUB: LEGAL NOTICE UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT, 1881 — DEMAND OF PAYMENT OF Rs. 85,000/- (RUPEES EIGHTY FIVE THOUSAND ONLY)
 
-const US_DEBT = `ALLIED RECOVERY SYSTEMS LLC
+Under instructions from and on behalf of my client, M/s Sharma Traders Pvt. Ltd., having its registered office at 2nd Floor, Kanakia Spaces, Andheri East, Mumbai – 400093, I hereby serve upon you the following legal notice:
+
+1. That my client states that you had business dealings with my client and, towards payment for goods supplied vide Invoice No. ST/26-27/0458, you issued a cheque bearing Cheque No. 458721 dated 5 September 2026 for Rs. 85,000/- drawn on State Bank of India, Powai Branch, in favour of my client.
+
+2. That the said cheque, on presentment before the drawee bank, was returned dishonoured vide Return Memo dated 10 September 2026 with the remarks "FUNDS INSUFFICIENT".
+
+3. That despite repeated verbal demands and written reminders, you have failed and neglected to pay the said amount.
+
+I, therefore, call upon you to pay the said sum of Rs. 85,000/- (Rupees Eighty Five Thousand Only) together with interest at 18% per annum within FIFTEEN (15) DAYS from the receipt of this notice, failing which my client shall be constrained to initiate criminal proceedings against you under Section 138 read with Section 142 of the Negotiable Instruments Act, 1881 before the learned Magistrate Court at Mumbai, wherein you shall be liable to be punished with imprisonment which may extend to two years, or with fine which may extend to twice the amount of the cheque, or with both, besides costs.
+
+This notice was received under acknowledgment on 19 September 2026.
+
+A copy of this notice is retained in my office for record and further necessary action.
+
+(Amit V. Shenoy)
+Advocate — Enrolment No. MAH/14526/2011
+Shenoy & Associates, Advocates, Mumbai`;
+
+/** PRD §33 — the same India §138 facts in Hindi (language-neutral legal facts). */
+const INDIA_CHEQUE_HINDI = `राजपत्रित डाक ए.डी. / स्पीड पोस्ट द्वारा
+संदर्भ संख्या: एसवी/सीएल/2026-114
+
+दिनांक: 18 सितंबर 2026
+
+सेवा में,
+श्री रोहन मेहता,
+ए-704, सनराइज़ रेज़ीडेंसी, पोवई,
+मुंबई – 400076।
+
+विषय: परिवहनीय उपकरण अधिनियम, 1881 की धारा 138 के अंतर्गत कानूनी नोटिस — रु. 85,000/- (पैंतालीस हज़ार रुपये) के भुगतान की मांग
+
+अपने ग्राहक, एम/एस शर्मा ट्रेडर्स प्रा. लि., के निर्देश पर मैं आपको निम्नलिखित कानूनी नोटिस सौंपता हूँ:
+
+1. मेरे ग्राहक का कहना है कि आपके और ग्राहक के बीच व्यापारिक लेन-देन था और माल के भुगतान हेतु आपने चेक संख्या 458721, दिनांक 5 सितंबर 2026, रु. 85,000/- की राशि का, स्टेट बैंक ऑफ़ इंडिया, पोवई शाखा पर आहरित, मेरे ग्राहक के पक्ष में जारी किया था।
+
+2. उक्त चेक बैंक में प्रस्तुत करने पर दिनांक 10 सितंबर 2026 के रिटर्न मेमो द्वारा "पर्याप्त धनराशि नहीं" (FUNDS INSUFFICIENT) के कारण अनादरित हुआ।
+
+3. बार-बार के मौखिक व लिखित अनुरोध के बावजूद आपने राशि का भुगतान नहीं किया।
+
+अतः मैं आपको नोटिस प्राप्ति से पंद्रह (15) दिनों के भीतर रु. 85,000/- (ब्याज सहित 18% वार्षिक) का भुगतान करने का अवसर देता हूँ, अन्यथा ग्राहक धारा 138 सपठित धारा 142 के अंतर्गत मुंबई के न्यायालय में आपराधिक कार्यवाही करने को बाध्य होगा, जिसमें दो वर्ष तक की कैद, चेक राशि के दोगुने तक का जुर्माना, या दोनों हो सकते हैं।
+
+यह नोटिस पावती पर 19 सितंबर 2026 को प्राप्त हुआ।
+
+(अमित वी. शेनोय)
+अधिवक्ता — नामांकन संख्या महा/14526/2011
+शेनोय एंड एसोसिएट्स, अधिवक्ता, मुंबई`;
+
+/** PRD §32 — US debt-collection validation notice, New York (dynamic dates). */
+const US_DEBT_NY = `ALLIED RECOVERY SYSTEMS LLC
 PO Box 4192, Buffalo, NY 14213
 (800) 555-0142 | alliedrecovery.example
 
@@ -88,71 +119,29 @@ Compliance Manager, Allied Recovery Systems LLC
 
 This communication is from a debt collector.`;
 
-const INDIA_CHEQUE = `BY REGISTERED A.D. / SPEED POST
-Ref. No.: SV/CL/2025-114
-
-Date: ${dIN(-3)}
-
-To,
-Mr. Rohan Mehta,
-A-704, Sunrise Residency, Powai,
-Mumbai – 400076.
-
-SUB: LEGAL NOTICE UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT, 1881 — DEMAND OF PAYMENT OF Rs. 4,50,000/- (RUPEES FOUR LAKH FIFTY THOUSAND ONLY)
-
-Under instructions from and on behalf of my client, M/s Sharma Traders Pvt. Ltd., having its registered office at 2nd Floor, Kanakia Spaces, Andheri East, Mumbai – 400093, I hereby serve upon you the following legal notice:
-
-1. That my client states that you had business dealings with my client and, towards payment for goods supplied vide Invoice No. ST/24-25/0917 dated ${dIN(-70)} amounting to Rs. 4,50,000/-, you issued a cheque bearing Cheque No. 004512 dated ${dIN(-38)} for Rs. 4,50,000/- drawn on HDFC Bank Ltd., Powai Branch, in favour of my client.
-
-2. That the said cheque, on presentment before the drawee bank on ${dIN(-35)}, was returned dishonoured vide Return Memo dated ${dIN(-35)} with the remarks "FUNDS INSUFFICIENT".
-
-3. That despite repeated verbal demands and written reminders dated ${dIN(-28)} and ${dIN(-21)}, you have failed and neglected to pay the said amount.
-
-I, therefore, call upon you to pay the said sum of Rs. 4,50,000/- (Rupees Four Lakh Fifty Thousand Only) together with interest at 18% per annum within FIFTEEN (15) DAYS from the receipt of this notice, failing which my client shall be constrained to initiate criminal proceedings against you under Section 138 read with Section 142 of the Negotiable Instruments Act, 1881 before the learned Magistrate Court at Mumbai, wherein you shall be liable to be punished with imprisonment which may extend to two years, or with fine which may extend to twice the amount of the cheque, or with both, besides costs.
-
-A copy of this notice is retained in my office for record and further necessary action.
-
-(Amit V. Shenoy)
-Advocate — Enrolment No. MAH/14526/2011
-Shenoy & Associates, Advocates, Mumbai`;
-
-const SPAIN_EVICTION = `REQUERIMIENTO NOTARIAL — Nº 2025/0344
-
-D. Fernando López Ortega, Notario del Ilustre Colegio Notarial de Madrid,
-
-HACE SABER: Que en el día de la fecha se ha personado en esta Notaría D.ª Carmen Villalba Ruiz, en calidad de arrendadora, requiriendo a D.ª María González Prieto, arrendataria del inmueble sito en Calle Alcalá 142, 3º B, 28009 Madrid, para que:
-
-PRIMERO.- PAGUE la cantidad de 2.750,00 €, correspondiente a las rentas devengadas y no abonadas correspondientes a los meses de ${monthES(-4)}, ${monthES(-3)} y ${monthES(-2)}, conforme al contrato de arrendamiento de fecha 15 de septiembre de 2023, en el que consta una renta mensual de 950,00 €, más 45,00 € de gastos de comunidad, más el IBI prorrateado.
-
-SEGUNDO.- DESHAGA EL IMPAGO dentro del plazo señalado, advirtiéndole de que, conforme al artículo 27.2.a) de la Ley 29/1994, de 24 de noviembre, de Arrendamientos Urbanos (LAU), el impago de la renta faculta a la arrendadora para resolver el contrato de arrendamiento y exigir el desalojo del inmueble mediante la interposición de la correspondiente demanda de desahucio por impago ante los Juzgados de Primera Instancia de Madrid, pudiendo reclamar además las cantidades adeudadas y los intereses legales.
-
-TERCERO.- Se le advierte igualmente que, de dirigirse contra usted la indicada demanda de desahucio, podrá ENERVAR la acción pagando al arrendador todas las cantidades adeudadas dentro de los diez días hábiles siguientes a la notificación de la resolución, conforme al artículo 22.2 de la Ley 1/2000, de Enjuiciamiento Civil, tratándose esta de la primera vez en que se ejercita dicha acción.
-
-Madrid, ${dES(-5)}.`;
-
 export const SAMPLES: SampleNotice[] = [
   {
     id: "in-cheque",
-    title: "Cheque bounce legal notice",
+    title: "Cheque bounce legal notice (§138)",
     jurisdiction_label: "India · Maharashtra",
-    stat_hint: "NI Act, 1881 · §138",
-    words: 350,
-    text: INDIA_CHEQUE,
+    stat_hint: "Negotiable Instruments Act, 1881 · §138",
+    words: 330,
+    text: INDIA_CHEQUE_TEST,
+  },
+  {
+    id: "in-cheque-hi",
+    title: "चेक अनादरण कानूनी नोटिस (§138)",
+    jurisdiction_label: "भारत · महाराष्ट्र",
+    stat_hint: "परिवहनीय उपकरण अधिनियम, 1881 · धारा 138",
+    words: 300,
+    text: INDIA_CHEQUE_HINDI,
   },
   {
     id: "us-debt",
-    title: "Debt collection letter",
+    title: "Debt collection letter (New York)",
     jurisdiction_label: "United States · New York",
     stat_hint: "FDCPA · 15 U.S.C. §1692g",
     words: 280,
-    text: US_DEBT,
-  },
-  {
-    id: "es-eviction",
-    title: "Eviction payment demand",
-    jurisdiction_label: "Spain · Madrid",
-    stat_hint: "LAU 29/1994 · Art. 27.2.a)",
-    words: 300,
-    text: SPAIN_EVICTION,
+    text: US_DEBT_NY,
   },
 ];

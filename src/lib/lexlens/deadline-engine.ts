@@ -26,6 +26,9 @@ export interface DeadlineRule {
   business_days: boolean;
   /** Corpus source backing the rule. */
   source_id: string | null;
+  /** JURISDICTION FIREWALL (PRD §4): the rule only loads for this case
+   *  jurisdiction. An Indian case can never load a US rule and vice versa. */
+  jurisdiction: "INDIA" | "USA";
   /** Localized description, e.g. "15 days from receipt of the notice". */
   description: L4;
   /** Localized label for the event. */
@@ -155,5 +158,53 @@ function finish(
     deadline,
     days_left: daysBetween(input.today, deadline),
     status: "calculated",
+  };
+}
+
+/* ───────────── PRD §10 — canonical statutory deadline function ─────────────
+ * Deterministic deadline calculation with the exact contract from the spec:
+ * no trigger date ⇒ deadline = null + MISSING_REQUIRED_FACT. Confidence is
+ * 1.0 only for verified statutory sources, lower for notice-stated periods. */
+
+export interface StatutoryDeadlineInput {
+  ruleId: string | null;
+  triggerDate: string | null; // ISO YYYY-MM-DD (e.g. noticeReceivedDate)
+  jurisdiction: "INDIA" | "USA" | "UNKNOWN";
+  statutoryPeriod: number | null; // days
+  businessDays?: boolean;
+  sourceId?: string | null;
+  corpusVerified?: boolean;
+}
+
+export interface StatutoryDeadlineResult {
+  deadline: string | null;
+  triggerDate: string | null;
+  period: number | null;
+  ruleId: string | null;
+  sourceId: string | null;
+  confidence: number;
+  status: "CALCULATED" | "MISSING_REQUIRED_FACT" | "NO_RULE";
+}
+
+export function calculateStatutoryDeadline(input: StatutoryDeadlineInput): StatutoryDeadlineResult {
+  const {
+    ruleId, triggerDate, jurisdiction, statutoryPeriod, businessDays = false,
+    sourceId = null, corpusVerified = true,
+  } = input;
+
+  if (jurisdiction === "UNKNOWN" || !ruleId || statutoryPeriod === null || statutoryPeriod <= 0) {
+    return { deadline: null, triggerDate: triggerDate ?? null, period: statutoryPeriod ?? null, ruleId, sourceId, confidence: 0, status: "NO_RULE" };
+  }
+  if (!isValidISO(triggerDate)) {
+    return { deadline: null, triggerDate: null, period: statutoryPeriod, ruleId, sourceId, confidence: corpusVerified ? 1 : 0.6, status: "MISSING_REQUIRED_FACT" };
+  }
+  return {
+    deadline: addDaysISO(triggerDate, statutoryPeriod, businessDays),
+    triggerDate,
+    period: statutoryPeriod,
+    ruleId,
+    sourceId,
+    confidence: corpusVerified ? 1 : 0.6,
+    status: "CALCULATED",
   };
 }

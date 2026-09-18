@@ -4,6 +4,7 @@
 // timeline, actions and the brief instantly — never re-running the LLM.
 
 import { calculateDeadline, isValidISO, type DeadlineRule, type FieldValue } from "./deadline-engine";
+import { findCitation, sourceMatchesCaseJurisdiction } from "./corpus";
 import {
   ACTION_TEMPLATES,
   DEADLINE_RULES,
@@ -17,6 +18,7 @@ import {
   genericStatedRule,
   questionsFor,
   timelineFor,
+  type RequiredField,
 } from "./rules";
 import {
   NOTICE_TYPE_LABELS,
@@ -37,7 +39,7 @@ import {
 } from "./types";
 
 export function money(amount: number, currency: string | null, locale: Locale): string {
-  const intl: Record<Locale, string> = { en: "en-US", hi: "en-IN", zh: "zh-CN", fr: "fr-FR" };
+  const intl: Record<Locale, string> = { en: "en-US", hi: "en-IN" };
   try {
     if (currency === "INR") return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(amount)}`;
     return new Intl.NumberFormat(intl[locale], {
@@ -51,7 +53,7 @@ export function money(amount: number, currency: string | null, locale: Locale): 
 }
 
 export function fmtISO(iso: string, locale: Locale): string {
-  const intl: Record<Locale, string> = { en: "en-GB", hi: "en-IN", zh: "zh-CN", fr: "fr-FR" };
+  const intl: Record<Locale, string> = { en: "en-GB", hi: "en-IN" };
   try {
     return new Intl.DateTimeFormat(intl[locale], { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(
       new Date(`${iso}T00:00:00Z`)
@@ -95,8 +97,19 @@ function resolveFields(base: CaseBase, user: UserCaseState): ResolvedFields {
 /* ───────────────────────── deadline rules per case ───────────────────────── */
 
 function rulesForCase(base: CaseBase): { rules: DeadlineRule[]; origin: "statute_rule" | "notice_stated" } {
-  const packed = DEADLINE_RULES[base.notice_type];
-  if (packed && packed.length) return { rules: packed, origin: "statute_rule" };
+  const country = base.jurisdiction.country;
+
+  // PRD §4: UNKNOWN jurisdiction ⇒ NO substantive legal rule pack.
+  if (country === "UNKNOWN") return { rules: [], origin: "statute_rule" };
+
+  // JURISDICTION FIREWALL: only rules matching the case jurisdiction load —
+  // an Indian case can never load the FDCPA rule and vice versa (PRD §4/§6/§11).
+  const packed = (DEADLINE_RULES[base.notice_type] ?? []).filter((r) => r.jurisdiction === country);
+
+  // PRD §11: the FDCPA 30-day validation window loads ONLY when applicability
+  // has been established from the facts — never assumed from "debt collection".
+  const applicable = packed.filter((r) => !(r.source_id === "fdcpa_1692g" && base.debt_rule_applicable !== true));
+  if (applicable.length) return { rules: applicable, origin: "statute_rule" };
   const stated = base.stated_deadlines?.[0];
   if (stated) {
     const rule = genericStatedRule();
@@ -110,13 +123,24 @@ function rulesForCase(base: CaseBase): { rules: DeadlineRule[]; origin: "statute
 const MISSING_DEADLINE_REASON: Record<Locale, (anchorLabel: string) => string> = {
   en: (a) => `Exact deadline cannot be calculated because ${a} is unknown. Add it below and LexLens will recalculate instantly.`,
   hi: (a) => `${a} ज्ञात न होने के कारण सटीक समा-सीमा की गणना नहीं की जा सकती। नीचे जोड़ें — LexLens तुरंत दोबारा गणना करेगा।`,
-  zh: (a) => `由于尚不知道${a}，无法计算确切截止日。请在下方补充，LexLens 将立即重新计算。`,
-  fr: (a) => `Le délai exact ne peut être calculé car ${a} est inconnu. Ajoutez-le ci-dessous et LexLens recalculera instantanément.`,
 };
 
 function anchorLabelFor(field: string | null, locale: Locale): string {
   if (field && FACT_LABELS[field]) return label(FACT_LABELS[field], locale).toLowerCase();
-  return { en: "the required date", hi: "आवश्यक तिथि", zh: "所需日期", fr: "la date requise" }[locale];
+  return { en: "the required date", hi: "आवश्यक तिथि" }[locale];
+}
+
+/** Required fields pass the same jurisdiction firewall: a US case never sees
+ *  NI Act context and an Indian case never sees FDCPA context (PRD §4). */
+function requiredFieldsFor(base: CaseBase): RequiredField[] {
+  const country = base.jurisdiction.country;
+  if (country === "UNKNOWN") return [];
+  return (REQUIRED_FIELDS[base.notice_type] ?? []).filter((rf) => {
+    if (!rf.source_id) return true;
+    const entry = findCitation(rf.source_id);
+    if (!entry) return true;
+    return sourceMatchesCaseJurisdiction(entry, country, base.jurisdiction.region);
+  });
 }
 
 /* ───────────────────────── main assembly ───────────────────────── */
@@ -129,7 +153,7 @@ export function buildCaseView(
 ): CaseView {
   const u = user ?? emptyUserState();
   const { fields, userFilled } = resolveFields(base, u);
-  const required = REQUIRED_FIELDS[base.notice_type] ?? [];
+  const required = requiredFieldsFor(base);
   const typeLabel = NOTICE_TYPE_LABELS[base.notice_type] ?? NOTICE_TYPE_LABELS.other;
 
   /* ── facts table (document facts + required fields + user inputs) ── */
@@ -191,7 +215,7 @@ export function buildCaseView(
     }
   }
   // generic notices: anchor of the stated deadline is missing?
-  if (!REQUIRED_FIELDS[base.notice_type]) {
+  if (required.length === 0) {
     const stated = base.stated_deadlines?.[0];
     if (stated && stated.anchor !== "explicit" && !stated.explicit_date) {
       const anchorField = stated.anchor === "notice" ? "notice_date" : "receipt_date";
@@ -204,8 +228,6 @@ export function buildCaseView(
             {
               en: "The notice states a response period from this date — without it no exact deadline can be calculated.",
               hi: "नोटिस इस तिथि से जवाबी अवधि बताता है — इसके बिना सटीक समा-सीमा नहीं निकल सकती।",
-              zh: "通知载明的答复期限自该日期起算——没有它就无法计算确切截止日。",
-              fr: "Le constat fixe un délai à compter de cette date — sans elle, aucun calcul possible.",
             },
             locale,
           ),
@@ -274,8 +296,8 @@ export function buildCaseView(
               kind: "derived",
               ref:
                 dl.anchor_source === "user_input"
-                  ? { en: "Calculated from user-provided receipt date + statutory period", hi: "उपयोगकर्ता-प्रदत्त प्राप्ति तिथि + वैधानिक अवधि से गणना", zh: "由用户提供的签收日期+法定期限计算得出", fr: "Calculé depuis la date de réception fournie + délai légal" }[locale]
-                  : { en: "Calculated from document date + statutory period", hi: "दस्तावेज़ तिथि + वैधानिक अवधि से गणना", zh: "由文件日期+法定期限计算得出", fr: "Calculé depuis la date du document + délai légal" }[locale],
+                  ? { en: "Calculated from user-provided receipt date + statutory period", hi: "उपयोगकर्ता-प्रदत्त प्राप्ति तिथि + वैधानिक अवधि से गणना" }[locale]
+                  : { en: "Calculated from document date + statutory period", hi: "दस्तावेज़ तिथि + वैधानिक अवधि से गणना" }[locale],
             }
           : { kind: "none", ref: null },
         confidence: null,
@@ -365,11 +387,42 @@ export function buildCaseView(
     .filter((q) => !q.when || q.when(ctx))
     .map((q) => ({ key: q.key, text: label(q.text, locale) }));
 
+  /* ── jurisdiction notes (PRD §3/§11/§12) — actionable, never guessed ── */
+  const country2 = base.jurisdiction.country;
+  let jurisdiction_note: string | null = null;
+  if (country2 === "UNKNOWN") {
+    jurisdiction_note = label(
+      {
+        en: "Jurisdiction could not be determined reliably. Please select the country/jurisdiction before continuing.",
+        hi: "क्षेत्राधिकार विश्वसनीय रूप से निर्धारित नहीं किया जा सका। कृपया आगे बढ़ने से पहले देश/क्षेत्राधिकार चुनें।",
+      },
+      locale,
+    );
+  } else if (country2 === "USA" && base.notice_type === "debt_collection" && base.debt_rule_applicable === null) {
+    jurisdiction_note = label(
+      {
+        en: "Additional information is required to determine whether the federal debt-collection rule applies.",
+        hi: "यह निर्धारित करने के लिए अतिरिक्त जानकारी आवश्यक है कि क्या संघीय कर्ज-वसूली नियम लागू होता है।",
+      },
+      locale,
+    );
+  } else if (country2 === "USA" && !base.jurisdiction.region) {
+    jurisdiction_note = label(
+      {
+        en: "State-specific legal rules could not be determined.",
+        hi: "राज्य-विशिष्ट कानूनी नियम निर्धारित नहीं किए जा सके।",
+      },
+      locale,
+    );
+  }
+
   return {
     base,
     user: u,
     type_label: typeLabel,
+    classification: base.classification,
     jurisdiction_label: `${base.jurisdiction.country}${base.jurisdiction.region ? " · " + base.jurisdiction.region : ""}`,
+    jurisdiction_note,
     facts,
     missing,
     deadlines,
@@ -455,8 +508,6 @@ export function buildBrief(view: CaseView, locale: Locale): Brief {
     warning: {
       en: "This is an AI-generated factual summary for lawyer review and is not legal advice.",
       hi: "यह वकील की समीक्षा के लिए AI-निर्मित तथ्यात्मक सारांश है और कानूनी सलाह नहीं है।",
-      zh: "这是供律师审阅的 AI 生成事实摘要，不构成法律意见。",
-      fr: "Résumé factuel généré par IA pour examen par un avocat — ne constitue pas un avis juridique.",
     },
   };
 }
@@ -465,8 +516,6 @@ export function briefToText(b: Brief, locale: Locale): string {
   const L = {
     en: { h: "LEXLENS CASE BRIEF", matter: "Matter", jur: "Jurisdiction", claimant: "Claimant / Sender", recipient: "Recipient", amount: "Amount", dates: "Important dates", prov: "Applicable legal provisions", deadline: "Current deadline", facts: "Verified facts", unv: "Unverified / missing facts", evA: "Available evidence", evM: "Missing evidence", q: "Questions for lawyer", pos: "Recipient's stated position" },
     hi: { h: "LEXLENS केस ब्रीफ", matter: "विषय", jur: "क्षेत्राधिकार", claimant: "दावेदार / प्रेषक", recipient: "प्राप्तकर्ता", amount: "राशि", dates: "महत्वपूर्ण तिथियाँ", prov: "लागू कानूनी प्रावधान", deadline: "वर्तमान समा-सीमा", facts: "सत्यापित तथ्य", unv: "असत्यापित / अनुपलब्ध तथ्य", evA: "उपलब्ध साक्ष्य", evM: "अनुपलब्ध साक्ष्य", q: "वकील के लिए प्रश्न", pos: "प्राप्तकर्ता की बताई गई स्थिति" },
-    zh: { h: "LEXLENS 案件简报", matter: "事项", jur: "管辖区", claimant: "索赔方/发件方", recipient: "收件人", amount: "金额", dates: "重要日期", prov: "适用法律条款", deadline: "当前截止日", facts: "已核实事实", unv: "未核实/缺失事实", evA: "现有证据", evM: "缺失证据", q: "请律师解答的问题", pos: "收件人所述立场" },
-    fr: { h: "SYNTHÈSE LEXLENS", matter: "Affaire", jur: "Juridiction", claimant: "Réclamant / Expéditeur", recipient: "Destinataire", amount: "Montant", dates: "Dates importantes", prov: "Dispositions applicables", deadline: "Échéance actuelle", facts: "Faits vérifiés", unv: "Faits non vérifiés / manquants", evA: "Preuves disponibles", evM: "Preuves manquantes", q: "Questions pour l'avocat", pos: "Position indiquée par le destinataire" },
   }[locale];
 
   const lines: string[] = [L.h, "=".repeat(40), ""];

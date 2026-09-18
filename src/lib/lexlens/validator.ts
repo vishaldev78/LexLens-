@@ -1,12 +1,12 @@
-// LexLens — safety validator (FEATURE 8 / 10 / 23).
+// LexLens — safety & jurisdiction validator (PRD §5 / §8 / §10 / §13 / §30).
 // Runs between the LLM and the UI. Never silently displays unvalidated output:
-// it corrects what is safe to correct, removes what is unsupported, and reports
-// every edit so the UI can disclose it.
+// it corrects what is safe to correct, REJECTS what is unsupported or from the
+// wrong legal system, and reports every edit so the UI can disclose it.
 
-import { findCitation } from "./corpus";
+import { findCitation, sourceMatchesCaseJurisdiction } from "./corpus";
 import { ABSOLUTE_PATTERNS, CONDITIONAL_REPLACEMENT, FORBIDDEN_CLAIM_PATTERNS } from "./rules";
 import { isValidISO, todayISO } from "./deadline-engine";
-import type { CaseBase, Proposition } from "./types";
+import type { CaseBase, Locale, Proposition } from "./types";
 
 export interface ValidationResult {
   base: CaseBase;
@@ -15,6 +15,7 @@ export interface ValidationResult {
 }
 
 const MIN_YEAR = 1950;
+const LOCALES: Locale[] = ["en", "hi"];
 
 /** Impossible-date check: statutes live in the modern era; nothing >15y ahead. */
 function impossibleISO(iso: string | null): boolean {
@@ -32,6 +33,26 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
   const edits: string[] = [];
   const warnings: string[] = [];
   const b = structuredClone(base);
+  const caseCountry = b.jurisdiction.country;
+  const caseRegion = b.jurisdiction.region;
+
+  /* 0. JURISDICTION FIREWALL (PRD §4/§5/§13) — backend enforcement.
+   *     Every citation must match the case jurisdiction before it can enter
+   *     the report. On UNKNOWN cases NO substantive legal source passes. */
+  const citBefore = b.citations.length;
+  b.citations = b.citations.filter((c) => {
+    const entry = findCitation(c.source_id);
+    if (!entry) return false; // whitelist handles the message
+    return sourceMatchesCaseJurisdiction(entry, caseCountry, caseRegion);
+  });
+  if (b.citations.length < citBefore) {
+    edits.push(`Rejected ${citBefore - b.citations.length} citation(s) from an incompatible jurisdiction`);
+  }
+
+  if (caseCountry === "UNKNOWN" && b.citations.length > 0) {
+    b.citations = [];
+    edits.push("Jurisdiction UNKNOWN — all substantive legal citations rejected pending confirmation");
+  }
 
   /* 1. Citation whitelist — invented statutes are dropped before display. */
   const before = b.citations.length;
@@ -40,9 +61,16 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
     edits.push(`Dropped ${before - b.citations.length} non-corpus citation(s)`);
   }
 
-  /* 2. Propositions must carry a corpus source to be called verified (FEATURE 21). */
+  /* 2. Propositions must carry a corpus source AND a matching jurisdiction. */
   b.propositions = (b.propositions ?? []).map((p: Proposition) => {
-    if (p.source_id && findCitation(p.source_id)) return { ...p, verified: true };
+    if (p.source_id && findCitation(p.source_id)) {
+      const entry = findCitation(p.source_id)!;
+      if (!sourceMatchesCaseJurisdiction(entry, caseCountry, caseRegion)) {
+        edits.push(`REJECTED proposition from incompatible jurisdiction (${entry.jurisdiction})`);
+        return { ...p, source_id: null, verified: false };
+      }
+      return { ...p, verified: true };
+    }
     if (p.source_id) {
       edits.push(`Proposition lost its unverifiable source (${p.source_id}) — marked unverified`);
       return { ...p, source_id: null, verified: false };
@@ -50,10 +78,10 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
     return { ...p, verified: false };
   });
 
-  /* 3. Rights: corpus-backed only; fabricated rights removed (FEATURE 8/9). */
+  /* 3. Rights: corpus-backed only, jurisdiction-matched; fabricated rights removed. */
   const forbidden = FORBIDDEN_CLAIM_PATTERNS[b.notice_type] ?? [];
   if (forbidden.length) {
-    for (const key of ["en", "hi", "zh", "fr"] as const) {
+    for (const key of LOCALES) {
       const block = b.localized[key];
       const kept = block.rights.filter((r) => {
         const hay = `${textOf(r.title)} ${textOf(r.detail)}`;
@@ -71,24 +99,25 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
     });
   }
 
-  // rights without any corpus source become inferred (never shown as verified law)
-  for (const key of ["en", "hi", "zh", "fr"] as const) {
-    for (const r of b.localized[key].rights) {
-      if (!r.source_id || !findCitation(r.source_id)) {
-        if (r.source_id) edits.push(`Right source "${r.source_id}" not in corpus — cleared (needs verification)`);
-        r.source_id = null;
-      }
-    }
+  // rights without any matching corpus source become inferred (never shown as verified law)
+  for (const key of LOCALES) {
+    b.localized[key].rights = b.localized[key].rights.filter((r) => {
+      if (!r.source_id) return true; // kept as unverified context, never cited
+      const entry = findCitation(r.source_id);
+      if (entry && sourceMatchesCaseJurisdiction(entry, caseCountry, caseRegion)) return true;
+      if (r.source_id) edits.push(`Right source "${r.source_id}" rejected (not in corpus or wrong jurisdiction)`);
+      return false;
+    });
   }
 
-  /* 4. Absolute outcome language → conditional (FEATURE 8/10). */
-  for (const key of ["en", "hi", "zh", "fr"] as const) {
+  /* 4. Absolute outcome language → conditional (PRD §16). */
+  for (const key of LOCALES) {
     const block = b.localized[key];
     const scan = (s: string): string => {
       if (!s) return s;
       if (ABSOLUTE_PATTERNS.some((re) => re.test(s))) {
         edits.push(`Softened absolute outcome statement in ${key.toUpperCase()} block`);
-        return s.replace(/[^.!?]*\b(will be arrested|will definitely|will certainly|you will lose|you will win|निश्चित रूप से|必然|vous serez certainement)[^.!?]*[.!?]?/gi, "").trim();
+        return s.replace(/[^.!?]*\b(will be arrested|will definitely|will certainly|you will lose|you will win|निश्चित रूप से)[^.!?]*[.!?]?/gi, "").trim();
       }
       return s;
     };
@@ -151,15 +180,15 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
 
   /* 8. Missing critical warnings: red severity must keep a lawyer step. */
   if (b.severity.level === "red") {
-    const re = /lawyer|advocate|attorney|वकील|律师|avocat|juriste/i;
-    for (const key of ["en", "hi", "zh", "fr"] as const) {
+    const re = /lawyer|advocate|attorney|वकील/i;
+    for (const key of LOCALES) {
       if (!b.localized[key].next_steps.some((s) => re.test(s))) {
         warnings.push(`Red severity without explicit lawyer step in ${key.toUpperCase()}`);
       }
     }
   }
 
-  /* 9. Confidence honesty (FEATURE 22): critical missing facts cap the headline. */
+  /* 9. Confidence honesty: critical missing facts cap the headline. */
   const hasReceiptishCritical = b.facts.some((f) => f.key === "receipt_date");
   if (!hasReceiptishCritical && b.overall_confidence > 0.9) {
     b.overall_confidence = Math.min(b.overall_confidence, 0.85);
@@ -168,6 +197,33 @@ export function validateAnalysis(base: CaseBase): ValidationResult {
   if (b.overall_confidence > 0.95) {
     b.overall_confidence = 0.95;
     edits.push("Overall confidence capped to 0.95");
+  }
+
+  /* 10. US-specific cross-jurisdiction leakage guard (PRD §4, §31).
+   *     Indian reports must never carry US legal terms — hard server-side
+   *     rejection, not cosmetic hiding. */
+  if (caseCountry === "INDIA") {
+    const usLeak = /\bFDCPA\b|15\s+U\.?S\.?C|§\s*1692|Regulation\s+F\b|CFPB|CPLR|wage\s+garnishment|bank\s+levy/i;
+    for (const key of LOCALES) {
+      const block = b.localized[key];
+      const scrub = (s: string): string => {
+        if (s && usLeak.test(s)) {
+          edits.push(`Rejected US legal term in INDIA case (${key.toUpperCase()} block)`);
+          return "";
+        }
+        return s;
+      };
+      block.summary = scrub(block.summary);
+      block.key_risk = scrub(block.key_risk);
+      block.next_steps = block.next_steps.map(scrub).filter(Boolean);
+      block.rights = block.rights.filter((r) => {
+        if (usLeak.test(`${r.title} ${r.detail}`)) {
+          edits.push("Rejected US legal right in INDIA case");
+          return false;
+        }
+        return true;
+      });
+    }
   }
 
   return { base: b, edits, warnings };

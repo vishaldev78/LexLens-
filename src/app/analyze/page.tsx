@@ -45,6 +45,7 @@ export default function AnalyzePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>("paste");
+  const [jurisdiction, setJurisdiction] = useState<"INDIA" | "USA" | "">("");
   const [text, setText] = useState("");
   const [picked, setPicked] = useState<PickedFile | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -85,6 +86,7 @@ export default function AnalyzePage() {
       const form = new FormData();
       form.append("file", f);
       form.append("label", f.name);
+      if (jurisdiction) form.append("jurisdiction", jurisdiction);
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/notices");
       xhr.upload.onprogress = (ev) => {
@@ -108,7 +110,7 @@ export default function AnalyzePage() {
     const res = await fetch("/api/notices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: noticeText, label, source }),
+      body: JSON.stringify({ text: noticeText, label, source, jurisdiction: jurisdiction || undefined }),
     });
     const data = (await res.json()) as { notice?: { id: string }; error?: string };
     if (!res.ok || !data.notice) throw new Error(data.error ?? t.cm_error);
@@ -164,6 +166,25 @@ export default function AnalyzePage() {
         <div className="text-center">
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">{t.an_title}</h1>
           <p className="mx-auto mt-3 max-w-2xl text-slate-600">{t.an_sub}</p>
+        </div>
+
+        {/* Jurisdiction selector (PRD §3) — explicit user selection is the
+            authoritative signal; otherwise the engine auto-detects and may
+            return UNKNOWN, which gates the report until confirmed. */}
+        <div className="mx-auto mt-6 max-w-xl">
+          <label htmlFor="jurisdiction" className="mb-1.5 block text-center text-sm font-medium text-slate-700">
+            {t.jur_label}
+          </label>
+          <select
+            id="jurisdiction"
+            value={jurisdiction}
+            onChange={(e) => setJurisdiction(e.target.value as "INDIA" | "USA" | "")}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          >
+            <option value="">{t.jur_auto}</option>
+            <option value="INDIA">{t.jur_india}</option>
+            <option value="USA">{t.jur_usa}</option>
+          </select>
         </div>
 
         {/* Output languages strip */}

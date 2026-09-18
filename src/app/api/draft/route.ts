@@ -24,7 +24,7 @@ interface DraftBody {
   deadline_line?: string | null;
 }
 
-const LANG_NAME: Record<Locale, string> = { en: "English", hi: "Hindi (Devanagari)", zh: "Simplified Chinese", fr: "French" };
+const LANG_NAME: Record<Locale, string> = { en: "English", hi: "Hindi (Devanagari)" };
 
 const POSITION_TEXT: Record<UserPosition, string> = {
   agree: "acknowledges the claim and intends to settle",

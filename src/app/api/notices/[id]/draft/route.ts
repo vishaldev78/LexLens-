@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
+import { getOrCreateSession, sessionExpiresAt } from "@/lib/session";
 import { getOwnedNotice, parseBase, parseUserState } from "@/lib/lexlens/server/notices";
 import { generateDraft, templateFallback } from "@/lib/lexlens/server/draft";
 import { buildCaseView } from "@/lib/lexlens/case-engine";
@@ -14,9 +14,9 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const body = (await req.json().catch(() => ({}))) as { locale?: Locale };
@@ -45,10 +45,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     });
 
     // One draft per notice — upsert on (noticeId).
-    const existing = await db.responseDraft.findFirst({ where: { noticeId: notice.id, userId: user.id }, select: { id: true } });
+    const existing = await db.responseDraft.findFirst({ where: { noticeId: notice.id, sessionId: session.id }, select: { id: true } });
     const row = existing
       ? await db.responseDraft.update({ where: { id: existing.id }, data: { content: result.draft, source: result.source, updatedAt: new Date() } })
-      : await db.responseDraft.create({ data: { userId: user.id, noticeId: notice.id, content: result.draft, source: result.source } });
+      : await db.responseDraft.create({ data: { sessionId: session.id, noticeId: notice.id, content: result.draft, source: result.source, expiresAt: sessionExpiresAt() } });
 
     const state2 = parseUserState(notice.userState);
     state2.draft = { text: row.content, source: row.source as "ai" | "template", at: row.updatedAt.getTime() };
@@ -56,13 +56,12 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     return NextResponse.json({ draft: result.draft, source: result.source });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] draft failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] draft failed:", err instanceof Error ? err.message : err);
     // Last-resort template so the button never dead-ends.
     try {
-      const user = await requireApiUser();
+      const session = await getOrCreateSession();
       const { id } = await params;
-      const notice = await getOwnedNotice(id, user);
+      const notice = await getOwnedNotice(id, session.id);
       if (notice) {
         const report = await db.analysisReport.findUnique({ where: { noticeId: notice.id } });
         const base = parseBase(report?.baseData ?? null);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
+import { getOrCreateSession, sessionExpiresAt } from "@/lib/session";
 import { detectKind, extractDocumentText, MAX_UPLOAD_BYTES, ACCEPT_MESSAGE } from "@/lib/lexlens/server/document-text";
 import { toSummary } from "@/lib/lexlens/server/notices";
 import { todayISO } from "@/lib/lexlens/deadline-engine";
@@ -18,23 +18,22 @@ function safeExt(kind: string): string {
 
 export async function GET() {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const notices = await db.notice.findMany({
-      where: { userId: user.id },
+      where: { sessionId: session.id },
       orderBy: { updatedAt: "desc" },
     });
     const today = todayISO();
     return NextResponse.json({ notices: notices.map((n) => toSummary(n, today)) });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] list failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] list failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not load your notices." }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const contentType = req.headers.get("content-type") ?? "";
 
     let noticeText = "";
@@ -44,6 +43,8 @@ export async function POST(req: NextRequest) {
     let filePath: string | null = null;
     let fileMime: string | null = null;
     let fileSize: number | null = null;
+
+    let userJurisdiction: string | null = null;
 
     if (contentType.includes("multipart/form-data")) {
       const form = await req.formData();
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
       if (!kind || kind === "rejected") {
         return NextResponse.json({ error: ACCEPT_MESSAGE }, { status: 415 });
       }
+      // Optional explicit jurisdiction from the upload form (PRD §3 signal).
+      const sel = (form.get("jurisdiction") as string | null) ?? "";
+      if (sel === "INDIA" || sel === "USA") userJurisdiction = sel;
       const extracted = await extractDocumentText(buf, kind);
       if (!extracted.ok) {
         return NextResponse.json({ error: extracted.reason ?? "Unable to process this file." }, { status: 422 });
@@ -70,21 +74,22 @@ export async function POST(req: NextRequest) {
       noticeText = extracted.text;
 
       // Persist under uploads/<userId>/ — NEVER inside public/.
-      const dir = path.join(UPLOAD_ROOT, user.id);
+      const dir = path.join(UPLOAD_ROOT, session.id);
       await mkdir(dir, { recursive: true });
       const stored = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}.${safeExt(kind)}`;
       await writeFile(path.join(dir, stored), buf);
-      filePath = `${user.id}/${stored}`;
+      filePath = `${session.id}/${stored}`;
       fileMime = file.type || null;
       fileSize = file.size;
       fileType = safeExt(kind);
       title = (label || file.name).replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 120) || "Uploaded notice";
       sourceLabel = file.name.slice(0, 160);
     } else {
-      const body = (await req.json().catch(() => null)) as { text?: string; label?: string; source?: string } | null;
+      const body = (await req.json().catch(() => null)) as { text?: string; label?: string; source?: string; jurisdiction?: string } | null;
       noticeText = (body?.text ?? "").trim();
       title = (body?.label ?? "").slice(0, 120) || "Pasted notice";
       sourceLabel = (body?.source ?? "paste").slice(0, 160);
+      if (body?.jurisdiction === "INDIA" || body?.jurisdiction === "USA") userJurisdiction = body.jurisdiction;
     }
 
     if (noticeText.length < 40) {
@@ -94,9 +99,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Optional explicit jurisdiction from the upload form (PRD §3 signal).
+
     const notice = await db.notice.create({
       data: {
-        userId: user.id,
+          sessionId: session.id,
+        expiresAt: sessionExpiresAt(),
         title,
         sourceLabel,
         fileType,
@@ -104,14 +112,15 @@ export async function POST(req: NextRequest) {
         fileMime,
         fileSize,
         noticeText: noticeText.slice(0, 20_000),
+        jurisdiction: userJurisdiction ?? "",
+        jurisdictionSource: userJurisdiction ? "user" : "",
         analysisStatus: "PENDING",
       },
     });
 
     return NextResponse.json({ notice: toSummary(notice, todayISO()), chars: noticeText.length });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] create failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] create failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "We couldn't process this document. Please make sure the file is valid and try again." }, { status: 500 });
   }
 }

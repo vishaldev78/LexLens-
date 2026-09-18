@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
-import { getOwnedNotice, parseBase, parseUserState } from "@/lib/lexlens/server/notices";
+import { getOrCreateSession } from "@/lib/session";
+import {
+  CaseFactConsistencyError,
+  getOwnedNotice,
+  parseBase,
+  parseUserState,
+  validateCaseFactConsistency,
+} from "@/lib/lexlens/server/notices";
 import { generateNoticePdf } from "@/lib/lexlens/server/report-pdf";
 import { todayISO } from "@/lib/lexlens/deadline-engine";
 import type { Locale } from "@/lib/lexlens/types";
@@ -13,9 +19,9 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const report = await db.analysisReport.findUnique({ where: { noticeId: notice.id } });
@@ -25,13 +31,17 @@ export async function GET(req: NextRequest, { params }: Params) {
     }
 
     const url = new URL(req.url);
-    const locale = (["en", "hi", "zh", "fr"].includes(url.searchParams.get("locale") ?? "")
+    const locale = (["en", "hi"].includes(url.searchParams.get("locale") ?? "")
       ? url.searchParams.get("locale")
       : "en") as Locale;
 
     const state = parseUserState(notice.userState);
+
+    // PRD §9 — receipt-date consistency gate. A contradictory report must
+    // NEVER render; refuse with an actionable error instead.
+    validateCaseFactConsistency(notice, state, base);
     const brief = await db.lawyerBrief.findFirst({
-      where: { noticeId: notice.id, userId: user.id },
+      where: { noticeId: notice.id, sessionId: session.id },
       orderBy: { updatedAt: "desc" },
     });
 
@@ -76,7 +86,10 @@ export async function GET(req: NextRequest, { params }: Params) {
       },
     });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+        if (err instanceof CaseFactConsistencyError) {
+      console.error("[lexlens/notices] case fact synchronization error:", err.message);
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     console.error("[lexlens/notices] pdf failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not generate the PDF report. Please try again." }, { status: 500 });
   }

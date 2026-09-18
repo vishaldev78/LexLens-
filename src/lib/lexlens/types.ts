@@ -7,10 +7,12 @@
 // deadline-engine.ts, case-engine.ts, validator.ts).
 
 export type SeverityLevel = "red" | "yellow" | "green";
-export type Locale = "en" | "hi" | "zh" | "fr";
-export const OUTPUT_LOCALES: Locale[] = ["en", "hi", "zh", "fr"];
+/** Supported output/UI languages (PRD §2): ONLY English and Hindi. */
+export type Locale = "en" | "hi";
+export const OUTPUT_LOCALES: Locale[] = ["en", "hi"];
+export const SUPPORTED_LANG_MESSAGE_EN = "Currently supported analysis languages are English and Hindi.";
 
-/** Localized string quad used by every deterministic template. */
+/** Localized string pair used by every deterministic template. */
 export type L4 = Record<Locale, string>;
 
 export type NoticeType =
@@ -23,10 +25,29 @@ export type NoticeType =
   | "court_summons"
   | "other";
 
+/* ───────────────── canonical jurisdiction (PRD §3) ───────────────── */
+
+/** Canonical case jurisdiction — the ONLY allowed values. Mixed or
+ *  inconclusive signals MUST resolve to UNKNOWN; the engine must never guess. */
+export type CaseJurisdiction = "INDIA" | "USA" | "UNKNOWN";
+
 export interface Jurisdiction {
-  country: string; // ISO-ish: US, IN, ES, UK, ...
+  country: CaseJurisdiction;
+  /** US state / Indian state or city label when detected (e.g. "New York"). */
   region: string;
   confidence: number;
+  /** True when the user explicitly selected the jurisdiction. */
+  userSelected: boolean;
+  /** Human-readable signals that drove the decision (max 4). */
+  signals: string[];
+}
+
+/** Deterministic classification (PRD §14) — never "debt collection" for an
+ *  Indian §138 cheque notice. Computed from (type × jurisdiction × facts). */
+export interface Classification {
+  primary: string;
+  subcategory: string | null;
+  secondary: string | null;
 }
 
 /* ───────────────────────── verification model (FEATURE 7) ───────────────────────── */
@@ -107,15 +128,19 @@ export interface LocalizedBlock {
 export interface LocalizedTexts {
   en: LocalizedBlock;
   hi: LocalizedBlock;
-  zh: LocalizedBlock;
-  fr: LocalizedBlock;
 }
 
 /** Base analysis produced by the LLM engine OR the offline engine. */
 export interface CaseBase {
   notice_type: NoticeType;
   jurisdiction: Jurisdiction;
+  /** Whether the federal debt-collection rule (FDCPA) applicability could be
+   *  established for a US notice. Never assumed from the words "debt". */
+  debt_rule_applicable: boolean | null;
   language_detected: string;
+  /** True when the notice language is NOT one of the supported ones. */
+  language_unsupported: boolean;
+  classification: Classification;
   sender: { name: string; type: string };
   recipient: { name: string | null };
   facts: ExtractedFact[];
@@ -267,7 +292,10 @@ export interface CaseView {
   base: CaseBase;
   user: UserCaseState;
   type_label: string;
+  classification: Classification;
   jurisdiction_label: string;
+  /** PRD §3/§11/§12 — jurisdiction gate / applicability / state notes. */
+  jurisdiction_note: string | null;
   facts: CaseFact[];
   missing: MissingField[];
   deadlines: DeadlineCalc[];
@@ -302,8 +330,6 @@ export interface CorpusEntry {
 export const LOCALE_LABELS: Record<Locale, { label: string; short: string; native: string }> = {
   en: { label: "English", short: "EN", native: "English" },
   hi: { label: "Hindi", short: "हिं", native: "हिन्दी" },
-  zh: { label: "Chinese", short: "中文", native: "中文" },
-  fr: { label: "French", short: "FR", native: "Français" },
 };
 
 export const SEVERITY_META: Record<
@@ -341,7 +367,7 @@ export const SEVERITY_META: Record<
 
 export const NOTICE_TYPE_LABELS: Record<string, string> = {
   debt_collection: "Debt collection",
-  cheque_bounce: "Cheque bounce (NI Act)",
+  cheque_bounce: "Cheque Dishonour",
   eviction: "Eviction / tenancy",
   consumer: "Consumer dispute",
   tax: "Tax notice",
@@ -350,11 +376,49 @@ export const NOTICE_TYPE_LABELS: Record<string, string> = {
   other: "Other notice",
 };
 
+/** Primary/subcategory classification labels per (jurisdiction × type) —
+ *  deterministic; the LLM cannot rename a §138 notice "debt collection". */
+export const CLASSIFICATION_LABELS: Record<string, Classification> = {
+  "INDIA:cheque_bounce": {
+    primary: "Cheque Dishonour",
+    subcategory: "Section 138 Demand Notice",
+    secondary: "Payment Demand",
+  },
+  "INDIA:debt_collection": {
+    primary: "Payment Demand",
+    subcategory: null,
+    secondary: null,
+  },
+  "USA:debt_collection": {
+    primary: "Debt Collection",
+    subcategory: "Debt Validation Notice",
+    secondary: null,
+  },
+  "USA:cheque_bounce": {
+    primary: "Payment Demand",
+    subcategory: "Cheque Payment Demand",
+    secondary: null,
+  },
+};
+
+export function classifyNotice(type: NoticeType, country: CaseJurisdiction, debtRuleApplicable: boolean | null): Classification {
+  const key = `${country}:${type}`;
+  const base = CLASSIFICATION_LABELS[key] ?? { primary: NOTICE_TYPE_LABELS[type] ?? NOTICE_TYPE_LABELS.other, subcategory: null, secondary: null };
+  if (type === "debt_collection" && country === "USA" && debtRuleApplicable === false) {
+    return { primary: "Payment Demand", subcategory: null, secondary: null };
+  }
+  return base;
+}
+
 export const LANGUAGE_NAMES: Record<string, string> = {
   en: "English", hi: "Hindi", zh: "Chinese", fr: "French", es: "Spanish",
   pt: "Portuguese", de: "German", ar: "Arabic", ur: "Urdu", ta: "Tamil",
   bn: "Bengali", it: "Italian", nl: "Dutch",
 };
+
+/** Languages LexLens can analyze (PRD §2) — everything else gets the
+ *  "Currently supported analysis languages are English and Hindi." notice. */
+export const SUPPORTED_LANGUAGE_CODES = new Set(["en", "hi"]);
 
 /** Deadline urgency for chips — never colour alone, always a text label (FEATURE 3). */
 export type UrgencyLevel = "critical" | "urgent" | "upcoming" | "none";

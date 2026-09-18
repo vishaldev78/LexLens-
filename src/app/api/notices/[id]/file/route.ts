@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/lib/db";
-import { requireApiUser, UnauthorizedError } from "@/lib/auth";
+import { getOrCreateSession } from "@/lib/session";
 import { getOwnedNotice } from "@/lib/lexlens/server/notices";
 
 export const runtime = "nodejs";
@@ -23,9 +23,9 @@ const MIME_BY_EXT: Record<string, string> = {
  *  only to the authenticated owner after an ownership check. */
 export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const user = await requireApiUser();
+    const session = await getOrCreateSession();
     const { id } = await params;
-    const notice = await getOwnedNotice(id, user);
+    const notice = await getOwnedNotice(id, session.id);
     if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
 
     const kind = req.nextUrl.searchParams.get("kind") ?? "notice";
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (kind === "evidence") {
       const eid = req.nextUrl.searchParams.get("eid") ?? "";
       if (!/^[a-z0-9]{10,40}$/i.test(eid)) return NextResponse.json({ error: "Invalid reference." }, { status: 400 });
-      const row = await db.evidence.findFirst({ where: { id: eid, noticeId: notice.id, userId: user.id } });
+      const row = await db.evidence.findFirst({ where: { id: eid, noticeId: notice.id, sessionId: session.id } });
       if (!row?.storedPath) return NextResponse.json({ error: "File not found." }, { status: 404 });
       relPath = row.storedPath;
       downloadName = row.name;
@@ -64,8 +64,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       },
     });
   } catch (err) {
-    if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-    console.error("[lexlens/notices] file failed:", err instanceof Error ? err.message : err);
+        console.error("[lexlens/notices] file failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not load this file." }, { status: 500 });
   }
 }
