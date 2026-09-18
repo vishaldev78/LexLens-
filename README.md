@@ -35,7 +35,7 @@ npm install
 # 2. create the environment file
 cp .env.example .env        # Windows: copy .env.example .env
 
-# 3. create / update the local SQLite database
+# 3. create / update the PostgreSQL database
 npm run db:push
 
 # 4. run the dev server
@@ -48,7 +48,7 @@ Environment variables (see `.env.example`):
 
 | Variable       | Required | Purpose                                                        |
 |----------------|----------|----------------------------------------------------------------|
-| `DATABASE_URL` | yes      | SQLite database file, e.g. `file:./db/custom.db`              |
+| `DATABASE_URL` | yes      | PostgreSQL connection string for the application database      |
 | SDK credentials| optional | When the Z.ai SDK credentials are present in the environment the LLM engine is used; otherwise the app automatically falls back to the built-in offline engine and never hard-fails |
 
 ## Flow
