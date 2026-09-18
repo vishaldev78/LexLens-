@@ -75,21 +75,17 @@ interface VisionOcrResult {
   reason?: string;
 }
 
-/** OCR an image or scanned PDF through the document-understanding model. */
-async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult> {
-  if (!kind) return { text: null, reason: "No document type was detected." };
+/** Send an image to the document-understanding model. */
+async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | null>): Promise<VisionOcrResult> {
   try {
     // Prefer deployment environment variables, while retaining the SDK's
     // project/home-directory config lookup for local development.
     const baseUrl = process.env.ZAI_BASE_URL?.trim();
     const apiKey = process.env.ZAI_API_KEY?.trim();
-    const mime = kind === "pdf" ? "application/pdf" : `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
+    const mime = `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
     const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
     const textPart = { type: "text" as const, text: "Extract ALL text from this legal document, preserving reading order. Output only the extracted text, no commentary." };
-    const content =
-      kind === "pdf"
-        ? [textPart, { type: "file_url" as const, file_url: { url: dataUrl } }]
-        : [textPart, { type: "image_url" as const, image_url: { url: dataUrl } }];
+    const content = [textPart, { type: "image_url" as const, image_url: { url: dataUrl } }];
 
     let res: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }> };
     if (baseUrl && apiKey) {
@@ -132,7 +128,62 @@ async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult
           "This is a scanned document, but OCR is not configured. Add ZAI_BASE_URL and ZAI_API_KEY to .env, then restart the server.",
       };
     }
+    const status = message.match(/failed \((\d{3})\)/)?.[1];
+    if (status === "401" || status === "403") {
+      return { text: null, reason: "OCR credentials were rejected. Check ZAI_BASE_URL and ZAI_API_KEY in Vercel, then redeploy." };
+    }
+    if (status === "404") {
+      return { text: null, reason: "The configured Z AI OCR endpoint or model was not found. Check ZAI_BASE_URL in Vercel." };
+    }
+    if (status === "400") {
+      return { text: null, reason: "The OCR provider rejected the image request. Try a clearer or smaller PDF." };
+    }
     return { text: null, reason: "The OCR service could not read this document." };
+  }
+}
+
+/** Render scanned PDF pages to PNG because the public vision endpoint is image-oriented. */
+async function renderPdfPages(buf: Buffer): Promise<Buffer[]> {
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    disableFontFace: true,
+    useSystemFonts: false,
+  }).promise;
+  const pages: Buffer[] = [];
+  const pageCount = Math.min(document.numPages, 8);
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.7 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    await page.render({
+      canvasContext: canvas.getContext("2d") as unknown as Parameters<typeof page.render>[0]["canvasContext"],
+      viewport,
+    } as never).promise;
+    pages.push(canvas.toBuffer("image/png"));
+  }
+  return pages;
+}
+
+/** OCR an image or scanned PDF through the document-understanding model. */
+async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult> {
+  if (kind === null) return { text: null, reason: "No document type was detected." };
+  if (kind !== "pdf") return visionOcrImage(buf, kind);
+  try {
+    const pages = await renderPdfPages(buf);
+    const texts: string[] = [];
+    let lastReason = "The OCR service could not read this document.";
+    for (const page of pages) {
+      const result = await visionOcrImage(page, "png");
+      if (result.text) texts.push(result.text);
+      if (result.reason) lastReason = result.reason;
+    }
+    return texts.length > 0 ? { text: texts.join("\n\n") } : { text: null, reason: lastReason };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[lexlens/document] PDF rasterization failed:", message);
+    return { text: null, reason: "This scanned PDF could not be rendered for OCR. Please upload a clearer PDF or an image." };
   }
 }
 
