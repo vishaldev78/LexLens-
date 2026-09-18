@@ -70,9 +70,14 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+interface VisionOcrResult {
+  text: string | null;
+  reason?: string;
+}
+
 /** OCR an image or scanned PDF through the document-understanding model. */
-async function visionOcr(buf: Buffer, kind: UploadKind): Promise<string | null> {
-  if (!kind) return null;
+async function visionOcr(buf: Buffer, kind: UploadKind): Promise<VisionOcrResult> {
+  if (!kind) return { text: null, reason: "No document type was detected." };
   try {
     // Prefer deployment environment variables, while retaining the SDK's
     // project/home-directory config lookup for local development.
@@ -97,10 +102,20 @@ async function visionOcr(buf: Buffer, kind: UploadKind): Promise<string | null> 
       45_000,
     );
     const text = (res.choices?.[0]?.message?.content ?? "").trim();
-    return text.length >= 40 ? text : null;
+    return text.length >= 40
+      ? { text }
+      : { text: null, reason: "The OCR service returned no readable text." };
   } catch (err) {
-    console.error("[lexlens/document] vision OCR failed:", err instanceof Error ? err.message : err);
-    return null;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[lexlens/document] vision OCR failed:", message);
+    if (message.includes("Configuration file not found or invalid")) {
+      return {
+        text: null,
+        reason:
+          "This is a scanned document, but OCR is not configured. Add ZAI_BASE_URL and ZAI_API_KEY to .env, then restart the server.",
+      };
+    }
+    return { text: null, reason: "The OCR service could not read this document." };
   }
 }
 
@@ -117,22 +132,20 @@ export async function extractDocumentText(buf: Buffer, kind: UploadKind): Promis
     if (layered) return { ok: true, text: layered.slice(0, 20_000) };
     // Scanned PDF — try OCR.
     const ocr = await visionOcr(buf, "pdf");
-    if (ocr) return { ok: true, text: ocr.slice(0, 20_000) };
+    if (ocr.text) return { ok: true, text: ocr.text.slice(0, 20_000) };
     return {
       ok: false,
       text: "",
-      reason:
-        "Unable to process this PDF. It looks like a scanned document without a readable text layer. Please try a clearer copy, or paste the notice text instead.",
+      reason: ocr.reason ?? "Unable to read this scanned PDF. Please paste the notice text instead.",
     };
   }
   if (kind === "png" || kind === "jpg" || kind === "jpeg" || kind === "webp") {
     const ocr = await visionOcr(buf, kind);
-    if (ocr) return { ok: true, text: ocr.slice(0, 20_000) };
+    if (ocr.text) return { ok: true, text: ocr.text.slice(0, 20_000) };
     return {
       ok: false,
       text: "",
-      reason:
-        "We couldn't read the text in this image. Make sure the document is fully visible and legible, or paste the notice text instead.",
+      reason: ocr.reason ?? "Unable to read this image. Please paste the notice text instead.",
     };
   }
   return { ok: false, text: "", reason: ACCEPT_MESSAGE };
