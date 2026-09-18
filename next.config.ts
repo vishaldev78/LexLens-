@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   // Keep PDF libraries out of the bundler: pdfkit resolves its .afm font data
   // relative to its own module directory and pdf-parse references a test file,
   // so both must load from node_modules as normal Node packages.
-  serverExternalPackages: ["pdfkit", "pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
+  serverExternalPackages: ["pdfkit", "pdf-parse", "pdfjs-dist", "@napi-rs/canvas", "tesseract.js"],
 };
 
 export default nextConfig;

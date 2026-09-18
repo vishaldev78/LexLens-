@@ -1,14 +1,15 @@
 // LexLens — server-side document text extraction.
 //
-// Pipeline (never trusts the client):
-//   PDF (text layer)  → pdf-parse  → text
-//   PDF (scanned)     → vision OCR (document understanding model) → text
-//   PNG/JPG/WEBP      → vision OCR → text
-//
-// Validation: extension + declared MIME + magic bytes + size. Executables and
-// anything unexpected are rejected before touching the analysis engine.
+  // Pipeline (never trusts the client):
+  //   PDF (text layer)  → pdf-parse  → text
+  //   PDF (scanned)     → vision OCR (document understanding model) → text
+  //   PNG/JPG/WEBP      → vision OCR → text
+  //
+  // Validation: extension + declared MIME + magic bytes + size. Executables and
+  // anything unexpected are rejected before touching the analysis engine.
 
-import ZAI from "z-ai-web-dev-sdk";
+  import { createWorker } from "tesseract.js";
+  import ZAI from "z-ai-web-dev-sdk";
 
 export const MAX_UPLOAD_MB = 10;
 export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
@@ -75,22 +76,40 @@ interface VisionOcrResult {
   reason?: string;
 }
 
-/** Send an image to the document-understanding model. */
-async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | null>): Promise<VisionOcrResult> {
+/** Free OCR using Tesseract.js — no API key, no limits, runs locally. */
+async function tesseractOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | null>): Promise<VisionOcrResult> {
   try {
-    // Prefer deployment environment variables, while retaining the SDK's
-    // project/home-directory config lookup for local development.
-    const baseUrl = process.env.ZAI_BASE_URL?.trim();
-    const apiKey = process.env.ZAI_API_KEY?.trim();
+    const worker = await createWorker(["eng"], 1, {
+      logger: () => {},
+    });
     const mime = `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
     const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
-    const textPart = { type: "text" as const, text: "Extract ALL text from this legal document, preserving reading order. Output only the extracted text, no commentary." };
-    const content = [textPart, { type: "image_url" as const, image_url: { url: dataUrl } }];
+    const { data } = await worker.recognize(dataUrl);
+    await worker.terminate();
+    const text = data.text?.trim() ?? "";
+    return text.length >= 40
+      ? { text }
+      : { text: null, reason: "Tesseract could not extract readable text from this image." };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[lexlens/document] tesseract OCR failed:", message);
+    return { text: null, reason: "Local OCR failed. Please try a clearer image or paste the text." };
+  }
+}
 
-    let res: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }> };
-    if (baseUrl && apiKey) {
-      // The public Z AI API uses the OpenAI-compatible endpoint. The SDK's
-      // createVision helper targets a separate /chat/completions/vision route.
+/** Send an image to the document-understanding model. */
+async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | null>): Promise<VisionOcrResult> {
+  // Try Z AI first if configured
+  const baseUrl = process.env.ZAI_BASE_URL?.trim();
+  const apiKey = process.env.ZAI_API_KEY?.trim();
+  
+  if (baseUrl && apiKey) {
+    try {
+      const mime = `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
+      const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+      const textPart = { type: "text" as const, text: "Extract ALL text from this legal document, preserving reading order. Output only the extracted text, no commentary." };
+      const content = [textPart, { type: "image_url" as const, image_url: { url: dataUrl } }];
+
       const response = await withTimeout(fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -100,52 +119,21 @@ async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | nul
           thinking: { type: "disabled" },
         }),
       }), 45_000);
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 300);
-        throw new Error(`Z AI vision request failed (${response.status}): ${detail}`);
+      
+      if (response.ok) {
+        const res = (await response.json()) as { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }> };
+        const message = res.choices?.[0]?.message?.content ?? "";
+        const text = (typeof message === "string" ? message : message.map((part) => part.text ?? "").join(" ")).trim();
+        if (text.length >= 40) return { text };
       }
-      res = (await response.json()) as typeof res;
-    } else {
-      const zai = await ZAI.create();
-      res = await withTimeout(zai.chat.completions.createVision({
-        model: "glm-4.5v",
-        messages: [{ role: "user", content }],
-        thinking: { type: "disabled" },
-      }), 45_000) as typeof res;
+    } catch (err) {
+      console.error("[lexlens/document] Z AI vision OCR failed, falling back to Tesseract:", err instanceof Error ? err.message : err);
     }
-    const message = res.choices?.[0]?.message?.content ?? "";
-    const text = (typeof message === "string" ? message : message.map((part) => part.text ?? "").join(" ")).trim();
-    return text.length >= 40
-      ? { text }
-      : { text: null, reason: "The OCR service returned no readable text." };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[lexlens/document] vision OCR failed:", message);
-    if (message.includes("Configuration file not found or invalid")) {
-      return {
-        text: null,
-        reason:
-          "This is a scanned document, but OCR is not configured. Add ZAI_BASE_URL and ZAI_API_KEY to .env, then restart the server.",
-      };
-    }
-    const status = message.match(/failed \((\d{3})\)/)?.[1];
-    if (status === "401" || status === "403") {
-      return { text: null, reason: "OCR credentials were rejected. Check ZAI_BASE_URL and ZAI_API_KEY in Vercel, then redeploy." };
-    }
-    if (status === "429" && message.includes("1113")) {
-      return { text: null, reason: "Z AI OCR is out of balance or has no resource package. Recharge the Z AI account, or configure another OCR provider." };
-    }
-    if (status === "429") {
-      return { text: null, reason: "Z AI OCR is temporarily rate-limited. Please wait a moment and try again." };
-    }
-    if (status === "404") {
-      return { text: null, reason: "The configured Z AI OCR endpoint or model was not found. Check ZAI_BASE_URL in Vercel." };
-    }
-    if (status === "400") {
-      return { text: null, reason: "The OCR provider rejected the image request. Try a clearer or smaller PDF." };
-    }
-    return { text: null, reason: "The OCR service could not read this document." };
   }
+  
+  // Fallback to free local Tesseract.js OCR
+  console.log("[lexlens/document] Using free Tesseract.js OCR fallback");
+  return tesseractOcrImage(buf, kind);
 }
 
 /** Render scanned PDF pages to PNG because the public vision endpoint is image-oriented. */
