@@ -82,6 +82,7 @@ export async function cleanupIfDue(force = false): Promise<void> {
     await db.evidence.deleteMany({ where: { expiresAt: { lt: expired } } });
     await db.responseDraft.deleteMany({ where: { expiresAt: { lt: expired } } });
     await db.lawyerBrief.deleteMany({ where: { expiresAt: { lt: expired } } });
+    await db.reminder.deleteMany({ where: { expiresAt: { lt: expired } } });
     // Expired sessions cascade-delete their notices → reports/evidence/etc.
     await db.analysisSession.deleteMany({ where: { expiresAt: { lt: expired } } });
   } catch (err) {
@@ -110,6 +111,7 @@ export async function getOrCreateSession(): Promise<AnonymousSession> {
       await db.evidence.updateMany({ where: { sessionId: id }, data: { expiresAt } });
       await db.responseDraft.updateMany({ where: { sessionId: id }, data: { expiresAt } });
       await db.lawyerBrief.updateMany({ where: { sessionId: id }, data: { expiresAt } });
+      await db.reminder.updateMany({ where: { sessionId: id }, data: { expiresAt } });
       void cleanupIfDue();
       return { id: existing.id, createdAt: existing.createdAt, expiresAt };
     }

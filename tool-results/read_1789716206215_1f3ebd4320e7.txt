@@ -1,0 +1,702 @@
+    55→    55→type TT = Record<string, string>;
+    56→    56→
+    57→    57→const POSITIONS: UserPosition[] = ["agree", "partial_dispute", "full_dispute", "already_paid", "dont_recognize", "unknown"];
+    58→    58→
+    59→    59→const STATUS_KEY: Record<string, string> = {
+    60→    60→  ACTIVE: "nl_status_active",
+    61→    61→  DUE_SOON: "nl_status_due_soon",
+    62→    62→  DUE_TODAY: "nl_status_due_today",
+    63→    63→  OVERDUE: "nl_status_overdue",
+    64→    64→  COMPLETED: "nl_status_completed",
+    65→    65→  NO_DEADLINE: "nl_status_no_deadline",
+    66→    66→  UNKNOWN_DEADLINE: "nl_status_unknown",
+    67→    67→};
+    68→    68→
+    69→    69→interface NoticeSummary {
+    70→    70→  id: string;
+    71→    71→  title: string;
+    72→    72→  noticeType: string;
+    73→    73→  severity: string;
+    74→    74→  claimedAmount: string | null;
+    75→    75→  noticeDate: string | null;
+    76→    76→  receiptDate: string | null;
+    77→    77→  deadlineDate: string | null;
+    78→    78→  status: string;
+    79→    79→  daysRemaining: number | null;
+    80→    80→  completed: boolean;
+    81→    81→  analysisStatus: string;
+    82→    82→  hasReport: boolean;
+    83→    83→  missingReceipt: boolean;
+    84→    84→  createdAt: string;
+    85→    85→}
+    86→    86→
+    87→    87→interface Detail {
+    88→    88→  notice: NoticeSummary;
+    89→    89→  base: CaseBase | null;
+    90→    90→  userState: UserCaseState;
+    91→    91→  hasBrief: boolean;
+    92→    92→  evidenceRows: { id: string; name: string; size: number; mimeType: string; createdAt: string }[];
+    93→    93→  noticeText: string | null;
+    94→    94→}
+    95→    95→
+    96→    96→/* ───────────────────────── page ───────────────────────── */
+    97→    97→
+    98→    98→function ReportInner() {
+    99→    99→  const { id } = useParams<{ id: string }>();
+   100→   100→  const router = useRouter();
+   101→   101→  const { t, locale } = useLang();
+   102→   102→  const tt = t as unknown as TT;
+   103→   103→
+   104→   104→  const [detail, setDetail] = useState<Detail | null>(null);
+   105→   105→  const [failed, setFailed] = useState(false);
+   106→   106→  const [notFound, setNotFound] = useState(false);
+   107→   107→
+   108→   108→  const [savedFlash, setSavedFlash] = useState("");
+   109→   109→  const [receiptInput, setReceiptInput] = useState("");
+   110→   110→  const [receiptBusy, setReceiptBusy] = useState(false);
+   111→   111→  const [retryBusy, setRetryBusy] = useState(false);
+   112→   112→  const [draftBusy, setDraftBusy] = useState(false);
+   113→   113→  const [draftErr, setDraftErr] = useState("");
+   114→   114→  const [evidenceBusy, setEvidenceBusy] = useState(false);
+   115→   115→  const [briefOpen, setBriefOpen] = useState(false);
+   116→   116→  const [showOriginal, setShowOriginal] = useState(false);
+   117→   117→  const [copied, setCopied] = useState(false);
+   118→   118→
+   119→   119→  const inputTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+   120→   120→
+   121→   121→  const load = useCallback(async () => {
+   122→   122→    try {
+   123→   123→      const res = await fetch(`/api/notices/${id}`, { cache: "no-store" });
+   124→   124→      if (res.status === 404) {
+   125→   125→        setNotFound(true);
+   126→   126→        return;
+   127→   127→      }
+   128→   128→      if (!res.ok) throw new Error(String(res.status));
+   129→   129→      setDetail((await res.json()) as Detail);
+   130→   130→    } catch {
+   131→   131→      setFailed(true);
+   132→   132→    }
+   133→   133→  }, [id]);
+   134→   134→
+   135→   135→  useEffect(() => {
+   136→   136→    void load();
+   137→   137→  }, [load]);
+   138→   138→
+   139→   139→  const today = todayISO();
+   140→   140→  const view = useMemo(
+   141→   141→    () => (detail?.base ? buildCaseView(detail.base, detail.userState, locale, today) : null),
+   142→   142→    [detail, locale, today],
+   143→   143→  );
+   144→   144→
+   145→   145→  function flash(key: string) {
+   146→   146→    setSavedFlash(key);
+   147→   147→    setTimeout(() => setSavedFlash(""), 2500);
+   148→   148→  }
+   149→   149→
+   150→   150→  /** Patch the workspace record, then refresh the server-computed summary. */
+   151→   151→  async function patchNotice(body: Record<string, unknown>): Promise<boolean> {
+   152→   152→    try {
+   153→   153→      const res = await fetch(`/api/notices/${id}`, {
+   154→   154→        method: "PATCH",
+   155→   155→        headers: { "Content-Type": "application/json" },
+   156→   156→        body: JSON.stringify(body),
+   157→   157→      });
+   158→   158→      if (!res.ok) return false;
+   159→   159→      await load();
+   160→   160→      return true;
+   161→   161→    } catch {
+   162→   162→      return false;
+   163→   163→    }
+   164→   164→  }
+   165→   165→
+   166→   166→  function saveReceipt(raw: string) {
+   167→   167→    const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : parseHumanDate(raw);
+   168→   168→    if (!iso) return;
+   169→   169→    setReceiptBusy(true);
+   170→   170→    void patchNotice({ receiptDate: iso }).then((ok) => {
+   171→   171→      setReceiptBusy(false);
+   172→   172→      if (ok) {
+   173→   173→        setReceiptInput("");
+   174→   174→        flash("receipt_saved");
+   175→   175→      }
+   176→   176→    });
+   177→   177→  }
+   178→   178→
+   179→   179→  function setInput(field: string, kind: "date" | "text" | "number", raw: string) {
+   180→   180→    if (!detail) return;
+   181→   181→    const inputs = { ...detail.userState.inputs };
+   182→   182→    if (!raw.trim()) {
+   183→   183→      delete inputs[field];
+   184→   184→      setDetail({ ...detail, userState: { ...detail.userState, inputs } });
+   185→   185→    } else if (kind === "date") {
+   186→   186→      const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : parseHumanDate(raw);
+   187→   187→      if (!iso) return; // invalid dates are never stored
+   188→   188→      inputs[field] = { value: raw, iso, num: null, at: Date.now() };
+   189→   189→      setDetail({ ...detail, userState: { ...detail.userState, inputs } });
+   190→   190→    } else if (kind === "number") {
+   191→   191→      const num = Number(raw.replace(/[^\d.]/g, ""));
+   192→   192→      inputs[field] = { value: raw, iso: null, num: Number.isFinite(num) ? num : null, at: Date.now() };
+   193→   193→      setDetail({ ...detail, userState: { ...detail.userState, inputs } });
+   194→   194→    } else {
+   195→   195→      inputs[field] = { value: raw, iso: null, num: null, at: Date.now() };
+   196→   196→      setDetail({ ...detail, userState: { ...detail.userState, inputs } });
+   197→   197→    }
+   198→   198→    flash(field);
+   199→   199→    clearTimeout(inputTimers.current[field]);
+   200→   200→    inputTimers.current[field] = setTimeout(() => {
+   201→   201→      void patchNotice({ inputs: detail.userState.inputs });
+   202→   202→    }, 600);
+   203→   203→  }
+   204→   204→
+   205→   205→  function setPosition(p: UserPosition) {
+   206→   206→    if (!detail) return;
+   207→   207→    setDetail({ ...detail, userState: { ...detail.userState, position: p } });
+   208→   208→    void patchNotice({ position: p });
+   209→   209→  }
+   210→   210→
+   211→   211→  async function addEvidence(files: FileList | null) {
+   212→   212→    if (!files?.length || !detail) return;
+   213→   213→    setEvidenceBusy(true);
+   214→   214→    try {
+   215→   215→      const form = new FormData();
+   216→   216→      Array.from(files)
+   217→   217→        .slice(0, 6)
+   218→   218→        .forEach((f) => form.append("files", f));
+   219→   219→      const res = await fetch(`/api/notices/${id}/evidence`, { method: "POST", body: form });
+   220→   220→      if (res.ok) {
+   221→   221→        await load();
+   222→   222→        flash("evidence");
+   223→   223→      }
+   224→   224→    } finally {
+   225→   225→      setEvidenceBusy(false);
+   226→   226→    }
+   227→   227→  }
+   228→   228→
+   229→   229→  async function generateDraft() {
+   230→   230→    if (!detail || !view) return;
+   231→   231→    setDraftBusy(true);
+   232→   232→    setDraftErr("");
+   233→   233→    try {
+   234→   234→      const res = await fetch(`/api/notices/${id}/draft`, {
+   235→   235→        method: "POST",
+   236→   236→        headers: { "Content-Type": "application/json" },
+   237→   237→        body: JSON.stringify({ locale }),
+   238→   238→      });
+   239→   239→      const data = (await res.json()) as { draft?: string; source?: "ai" | "template"; error?: string };
+   240→   240→      if (!data.draft) throw new Error(data.error ?? "draft failed");
+   241→   241→      setDetail({ ...detail, userState: { ...detail.userState, draft: { text: data.draft, source: data.source ?? "template", at: Date.now() } } });
+   242→   242→    } catch {
+   243→   243→      const fallback = templateDraft(view, locale);
+   244→   244→      if (fallback) {
+   245→   245→        setDetail({ ...detail, userState: { ...detail.userState, draft: { text: fallback, source: "template", at: Date.now() } } });
+   246→   246→      } else {
+   247→   247→        setDraftErr(tt.rd_error ?? "Could not prepare the draft. Please try again.");
+   248→   248→      }
+   249→   249→    } finally {
+   250→   250→      setDraftBusy(false);
+   251→   251→    }
+   252→   252→  }
+   253→   253→
+   254→   254→  const brief = useMemo(() => (view ? buildBrief(view, locale) : null), [view, locale]);
+   255→   255→
+   256→   256→  function openBrief() {
+   257→   257→    setBriefOpen(true);
+   258→   258→    // Persist the brief for future sessions (fire-and-forget).
+   259→   259→    void fetch(`/api/notices/${id}/brief`, {
+   260→   260→      method: "POST",
+   261→   261→      headers: { "Content-Type": "application/json" },
+   262→   262→      body: JSON.stringify({ locale }),
+   263→   263→    }).catch(() => {});
+   264→   264→  }
+   265→   265→
+   266→   266→  async function retryAnalysis() {
+   267→   267→    setRetryBusy(true);
+   268→   268→    try {
+   269→   269→      const res = await fetch(`/api/notices/${id}/analyze`, { method: "POST" });
+   270→   270→      if (res.ok) await load();
+   271→   271→    } finally {
+   272→   272→      setRetryBusy(false);
+   273→   273→    }
+   274→   274→  }
+   275→   275→
+   276→   276→  async function remove() {
+   277→   277→    if (!window.confirm(tt.nl_confirm)) return;
+   278→   278→    const res = await fetch(`/api/notices/${id}`, { method: "DELETE" });
+   279→   279→    if (res.ok) router.push("/analyze");
+   280→   280→  }
+   281→   281→
+   282→   282→  function downloadFile(name: string, content: string, mime = "text/plain") {
+   283→   283→    const blob = new Blob([content], { type: mime });
+   284→   284→    const url = URL.createObjectURL(blob);
+   285→   285→    const a = document.createElement("a");
+   286→   286→    a.href = url;
+   287→   287→    a.download = name;
+   288→   288→    a.click();
+   289→   289→    URL.revokeObjectURL(url);
+   290→   290→  }
+   291→   291→
+   292→   292→  async function copySummary() {
+   293→   293→    if (!view || !detail?.base) return;
+   294→   294→    const b = detail.base.localized[locale] ?? detail.base.localized.en;
+   295→   295→    const dl = view.deadlines.find((d) => d.status === "calculated");
+   296→   296→    const lines = [
+   297→   297→      "LexLens — Case summary",
+   298→   298→      "──────────────────────────",
+   299→   299→      b.summary,
+   300→   300→      "",
+   301→   301→      `${tt.ac_deadline_exact}: ${dl ? `${dl.deadline} (${dl.label})` : tt.ac_cannot_calc}`,
+   302→   302→      "",
+   303→   303→      `${tt.ac_next}:`,
+   304→   304→      ...view.actions.map((a, i) => `${i + 1}. ${a.title}`),
+   305→   305→      "",
+   306→   306→      tt.rs_disclaimer,
+   307→   307→    ];
+   308→   308→    try {
+   309→   309→      await navigator.clipboard.writeText(lines.join("\n"));
+   310→   310→      setCopied(true);
+   311→   311→      setTimeout(() => setCopied(false), 2000);
+   312→   312→    } catch {
+   313→   313→      /* clipboard blocked */
+   314→   314→    }
+   315→   315→  }
+   316→   316→
+   317→   317→  /* ── states ── */
+   318→   318→  if (notFound) {
+   319→   319→    return (
+   320→   320→      <div className="mx-auto max-w-xl px-4 py-20 text-center">
+   321→   321→        <FileText className="mx-auto h-10 w-10 text-slate-300" />
+   322→   322→        <h1 className="mt-4 text-xl font-bold text-slate-900">{tt.rs_notfound_t}</h1>
+   323→   323→        <p className="mt-2 text-sm leading-relaxed text-slate-600">{tt.rs_notfound_d}</p>
+   324→   324→        <Link href="/analyze" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
+   325→   325→          {tt.nav_analyze}
+   326→   326→        </Link>
+   327→   327→      </div>
+   328→   328→    );
+   329→   329→  }
+   330→   330→  if (failed) {
+   331→   331→    return (
+   332→   332→      <div className="mx-auto max-w-md px-4 py-24 text-center">
+   333→   333→        <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+   334→   334→        <h1 className="mt-4 text-lg font-bold text-slate-900">{tt.cm_error}</h1>
+   335→   335→      </div>
+   336→   336→    );
+   337→   337→  }
+   338→   338→  if (!detail) {
+   339→   339→    return (
+   340→   340→      <div className="flex min-h-[50vh] items-center justify-center">
+   341→   341→        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+   342→   342→      </div>
+   343→   343→    );
+   344→   344→  }
+   345→   345→
+   346→   346→  const n = detail.notice;
+   347→   347→  const base = detail.base;
+   348→   348→  const hasReport = !!base && (n.analysisStatus === "READY" || !!base);
+   349→   349→
+   350→   350→  return (
+   351→   351→    <div className="relative">
+   352→   352→      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-indigo-50/80 to-transparent" />
+   353→   353→      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
+   354→   354→        {!hasReport ? (
+   355→   355→          <PendingCard n={n} tt={tt} retryBusy={retryBusy} onRetry={() => void retryAnalysis()} onRemove={() => void remove()} />
+   356→   356→        ) : (
+   357→   357→          <>
+   358→   358→            <ReportBody
+   359→   359→              detail={detail}
+   360→   360→              view={view!}
+   361→   361→              tt={tt}
+   362→   362→              locale={locale}
+   363→   363→              brief={brief!}
+   364→   364→              flags={{
+   365→   365→                savedFlash,
+   366→   366→                receiptInput,
+   367→   367→                setReceiptInput,
+   368→   368→                receiptBusy,
+   369→   369→                retryBusy,
+   370→   370→                draftBusy,
+   371→   371→                draftErr,
+   372→   372→                evidenceBusy,
+   373→   373→                briefOpen,
+   374→   374→                setBriefOpen,
+   375→   375→                showOriginal,
+   376→   376→                setShowOriginal,
+   377→   377→                copied,
+   378→   378→              }}
+   379→   379→              actions={{
+   380→   380→                saveReceipt,
+   381→   381→                setInput,
+   382→   382→                setPosition,
+   383→   383→                addEvidence,
+   384→   384→                generateDraft,
+   385→   385→                openBrief,
+   386→   386→                retryAnalysis: () => void retryAnalysis(),
+   387→   387→                remove: () => void remove(),
+   388→   388→                patchNotice,
+   389→   389→                downloadFile,
+   390→   390→                copySummary: () => void copySummary(),
+   391→   391→                printBrief: () => {
+   392→   392→                  document.body.classList.add("brief-print");
+   393→   393→                  setTimeout(() => {
+   394→   394→                    window.print();
+   395→   395→                    setTimeout(() => document.body.classList.remove("brief-print"), 400);
+   396→   396→                  }, 60);
+   397→   397→                },
+   398→   398→              }}
+   399→   399→            />
+   400→   400→          </>
+   401→   401→        )}
+   402→   402→      </div>
+   403→   403→    </div>
+   404→   404→  );
+   405→   405→}
+   406→   406→
+   407→   407→/* ───────────────────────── pending / failed card ───────────────────────── */
+   408→   408→
+   409→   409→function PendingCard({
+   410→   410→  n,
+   411→   411→  tt,
+   412→   412→  retryBusy,
+   413→   413→  onRetry,
+   414→   414→  onRemove,
+   415→   415→}: {
+   416→   416→  n: NoticeSummary;
+   417→   417→  tt: TT;
+   418→   418→  retryBusy: boolean;
+   419→   419→  onRetry: () => void;
+   420→   420→  onRemove: () => void;
+   421→   421→}) {
+   422→   422→  const failed = n.analysisStatus === "FAILED";
+   423→   423→  return (
+   424→   424→    <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+   425→   425→      <span
+   426→   426→        className={`mx-auto flex h-14 w-14 items-center justify-center rounded-2xl ${
+   427→   427→          failed ? "bg-red-50 text-red-500" : "bg-indigo-50 text-indigo-500"
+   428→   428→        }`}
+   429→   429→      >
+   430→   430→        {failed ? <AlertTriangle className="h-7 w-7" /> : <Loader2 className="h-7 w-7 animate-spin" />}
+   431→   431→      </span>
+   432→   432→      <h1 className="mt-4 text-xl font-extrabold text-slate-900">{failed ? tt.rp_status_failed : tt.rp_status}</h1>
+   433→   433→      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600">{failed ? tt.nl_retry : tt.nl_empty_d}</p>
+   434→   434→      <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+   435→   435→        <button
+   436→   436→          onClick={onRetry}
+   437→   437→          disabled={retryBusy}
+   438→   438→          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
+   439→   439→        >
+   440→   440→          {retryBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+   441→   441→          {failed ? tt.nl_retry : tt.rp_retry}
+   442→   442→        </button>
+   443→   443→        <button
+   444→   444→          onClick={onRemove}
+   445→   445→          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-red-600 hover:border-red-300 hover:bg-red-50"
+   446→   446→        >
+   447→   447→          <Trash2 className="h-4 w-4" /> {tt.rp_del}
+   448→   448→        </button>
+   449→   449→      </div>
+   450→   450→    </div>
+   451→   451→  );
+   452→   452→}
+   453→   453→
+   454→   454→/* ───────────────────────── report body ───────────────────────── */
+   455→   455→
+   456→   456→interface Flags {
+   457→   457→  savedFlash: string;
+   458→   458→  receiptInput: string;
+   459→   459→  setReceiptInput: (v: string) => void;
+   460→   460→  receiptBusy: boolean;
+   461→   461→  retryBusy: boolean;
+   462→   462→  draftBusy: boolean;
+   463→   463→  draftErr: string;
+   464→   464→  evidenceBusy: boolean;
+   465→   465→  briefOpen: boolean;
+   466→   466→  setBriefOpen: (v: boolean) => void;
+   467→   467→  showOriginal: boolean;
+   468→   468→  setShowOriginal: (v: boolean) => void;
+   469→   469→  copied: boolean;
+   470→   470→}
+   471→   471→
+   472→   472→interface Actions {
+   473→   473→  saveReceipt: (raw: string) => void;
+   474→   474→  setInput: (field: string, kind: "date" | "text" | "number", raw: string) => void;
+   475→   475→  setPosition: (p: UserPosition) => void;
+   476→   476→  addEvidence: (files: FileList | null) => Promise<void>;
+   477→   477→  generateDraft: () => Promise<void>;
+   478→   478→  openBrief: () => void;
+   479→   479→  retryAnalysis: () => void;
+   480→   480→  remove: () => void;
+   481→   481→  patchNotice: (body: Record<string, unknown>) => Promise<boolean>;
+   482→   482→  downloadFile: (name: string, content: string, mime?: string) => void;
+   483→   483→  copySummary: () => void;
+   484→   484→  printBrief: () => void;
+   485→   485→}
+   486→   486→
+   487→   487→function ReportBody({
+   488→   488→  detail,
+   489→   489→  view,
+   490→   490→  tt,
+   491→   491→  locale,
+   492→   492→  brief,
+   493→   493→  flags,
+   494→   494→  actions,
+   495→   495→}: {
+   496→   496→  detail: Detail;
+   497→   497→  view: NonNullable<ReturnType<typeof buildCaseView>>;
+   498→   498→  tt: TT;
+   499→   499→  locale: Locale;
+   500→   500→  brief: ReturnType<typeof buildBrief>;
+   501→   501→  flags: Flags;
+   502→   502→  actions: Actions;
+   503→   503→}) {
+   504→   504→  const { notice: n } = detail;
+   505→   505→  const base = detail.base!;
+   506→   506→  const sev = base.severity.level;
+   507→   507→  const meta = view.deadlines.find((d) => d.status === "calculated");
+   508→   508→  const dlLabels = { noDate: tt.rs_no_date, overdue: tt.rs_overdue, today: tt.rs_today, oneLeft: tt.rs_1_day_left, daysLeft: tt.rs_days_left, cs_overdue: tt.cs_overdue, rdl_urgency_critical: tt.rdl_urgency_critical, rdl_none: tt.rdl_none, rs_days_left: tt.rs_days_left };
+   509→   509→
+   510→   510→  const [completedBusy, setCompletedBusy] = useState(false);
+   511→   511→
+   512→   512→  async function toggleCompleted() {
+   513→   513→    setCompletedBusy(true);
+   514→   514→    await actions.patchNotice({ completed: !n.completed });
+   515→   515→    setCompletedBusy(false);
+   516→   516→  }
+   517→   517→
+   518→   518→  return (
+   519→   519→    <>
+   520→   520→      {/* header */}
+   521→   521→      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+   522→   522→        <div className="min-w-0">
+   523→   523→          <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-indigo-700">
+   524→   524→            <ClipboardList className="h-3 w-3" /> {tt.rs_kicker}
+   525→   525→          </span>
+   526→   526→          <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">{view.type_label}</h1>
+   527→   527→          <p className="mt-1 truncate text-sm text-slate-500">
+   528→   528→            {n.title} · {view.jurisdiction_label}
+   529→   529→          </p>
+   530→   530→          {/* PRD §14 — deterministic classification (never "debt collection" for a §138 notice) */}
+   531→   531→          <p className="mt-1.5 text-[13px] font-medium text-slate-600">
+   532→   532→            {tt.cls_primary}: <span className="font-bold text-slate-800">{view.classification.primary}</span>
+   533→   533→            {view.classification.subcategory && (
+   534→   534→              <>
+   535→   535→                {" · "}{tt.cls_sub}: <span className="font-bold text-slate-800">{view.classification.subcategory}</span>
+   536→   536→              </>
+   537→   537→            )}
+   538→   538→            {view.classification.secondary && (
+   539→   539→              <>
+   540→   540→                {" · "}{tt.cls_secondary}: <span className="text-slate-600">{view.classification.secondary}</span>
+   541→   541→              </>
+   542→   542→            )}
+   543→   543→          </p>
+   544→   544→          <div className="mt-2 flex flex-wrap items-center gap-2">
+   545→   545→            <span className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${
+   546→   546→              n.status === "COMPLETED"
+   547→   547→                ? "border-slate-200 bg-slate-100 text-slate-600"
+   548→   548→                : n.status === "ACTIVE"
+   549→   549→                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+   550→   550→                  : n.status === "DUE_SOON"
+   551→   551→                    ? "border-amber-200 bg-amber-50 text-amber-700"
+   552→   552→                    : "border-red-200 bg-red-50 text-red-700"
+   553→   553→            }`}>
+   554→   554→              {tt[STATUS_KEY[n.status] ?? "nl_status_unknown"]}
+   555→   555→            </span>
+   556→   556→            {n.claimedAmount && <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[10.5px] font-extrabold text-indigo-700">{n.claimedAmount}</span>}
+   557→   557→          </div>
+   558→   558→        </div>
+   559→   559→        <div className="no-print flex flex-wrap gap-2">
+   560→   560→          <a
+   561→   561→            href={`/api/notices/${n.id}/pdf`}
+   562→   562→            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-700"
+   563→   563→          >
+   564→   564→            <Download className="h-3.5 w-3.5" /> {tt.rp_download_pdf}
+   565→   565→          </a>
+   566→   566→          <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
+   567→   567→            <Printer className="h-3.5 w-3.5" /> {tt.rs_print}
+   568→   568→          </button>
+   569→   569→          <button onClick={actions.copySummary} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
+   570→   570→            <Copy className="h-3.5 w-3.5" /> {flags.copied ? tt.rs_copied : tt.rs_copy}
+   571→   571→          </button>
+   572→   572→          <button
+   573→   573→            onClick={() => void toggleCompleted()}
+   574→   574→            disabled={completedBusy}
+   575→   575→            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-60"
+   576→   576→          >
+   577→   577→            {completedBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+   578→   578→            {n.completed ? tt.nl_reopen : tt.nl_completed}
+   579→   579→          </button>
+   580→   580→          <button onClick={actions.remove} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:border-red-300 hover:bg-red-50">
+   581→   581→            <Trash2 className="h-3.5 w-3.5" />
+   582→   582→          </button>
+   583→   583→          {/* PRD §38 — Start New Analysis: fresh anonymous session, nothing carried over */}
+   584→   584→          <button
+   585→   585→            onClick={async () => {
+   586→   586→              await fetch("/api/session/new", { method: "POST" }).catch(() => {});
+   587→   587→              try { sessionStorage.clear(); } catch { /* private mode */ }
+   588→   588→              window.location.href = "/analyze"; // full reload clears all client-side state
+   589→   589→            }}
+   590→   590→            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
+   591→   591→            title={tt.start_new_confirm}
+   592→   592→          >
+   593→   593→            <RotateCcw className="h-3.5 w-3.5" /> {tt.start_new}
+   594→   594→          </button>
+   595→   595→        </div>
+   596→   596→      </div>
+   597→   597→
+   598→   598→      {/* status strip */}
+   599→   599→      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+   600→   600→        <Strip icon={Siren} label={tt.rs_card_sev} value={sev === "red" ? tt.sev_red : sev === "yellow" ? tt.sev_yellow : tt.sev_green} dot={sev === "red" ? "bg-red-500" : sev === "yellow" ? "bg-amber-500" : "bg-emerald-500"} />
+   601→   601→        <Strip icon={CalendarClock} label={tt.rs_deadlines_t} value={meta ? meta.deadline! : tt.ac_cannot_calc} tone={meta ? "text-slate-900" : "text-amber-700"} />
+   602→   602→        <Strip icon={ListChecksIcon} label={tt.ms_title} value={`${view.missing.length}`} sub={view.missing.length ? tt.ms_sub : tt.ms_none} tone={view.missing.length ? "text-amber-700" : "text-emerald-700"} />
+   603→   603→        <Strip icon={ShieldAlert} label={tt.rp_status} value={`✓ ${tt.rp_engine_ok}`} sub={tt.rp_sources_ok} tone="text-emerald-700" />
+   604→   604→      </div>
+   605→   605→
+   606→   606→      {/* banners */}
+   607→   607→      <div className="mt-4 space-y-3">
+   608→   608→        {/* PRD §3 — UNKNOWN jurisdiction gate: no substantive rules until confirmed */}
+   609→   609→        {base.jurisdiction.country === "UNKNOWN" && (
+   610→   610→          <div className="rounded-2xl border border-red-300 bg-red-50 p-4">
+   611→   611→            <div className="flex items-start gap-3">
+   612→   612→              <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+   613→   613→              <div className="min-w-0 flex-1">
+   614→   614→                <div className="text-sm font-extrabold text-red-800">{tt.jur_unknown_t}</div>
+   615→   615→                <p className="mt-1 text-sm leading-relaxed text-red-800/90">{tt.jur_unknown_d}</p>
+   616→   616→                <div className="mt-3 flex flex-wrap gap-2">
+   617→   617→                  <button
+   618→   618→                    onClick={() => void actions.patchNotice({ jurisdiction: "INDIA" })}
+   619→   619→                    className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+   620→   620→                  >
+   621→   621→                    {tt.jur_india}
+   622→   622→                  </button>
+   623→   623→                  <button
+   624→   624→                    onClick={() => void actions.patchNotice({ jurisdiction: "USA" })}
+   625→   625→                    className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+   626→   626→                  >
+   627→   627→                    {tt.jur_usa}
+   628→   628→                  </button>
+   629→   629→                </div>
+   630→   630→              </div>
+   631→   631→            </div>
+   632→   632→          </div>
+   633→   633→        )}
+   634→   634→        {/* PRD §2 — unsupported notice language is disclosed, never silently analysed */}
+   635→   635→        {base.language_unsupported && (
+   636→   636→          <div className="flex items-start gap-3.5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+   637→   637→            <Languages className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+   638→   638→            <div>
+   639→   639→              <div className="text-sm font-extrabold text-amber-800">{tt.lang_unsupported}</div>
+   640→   640→              <p className="mt-1 text-sm leading-relaxed text-amber-800/90">
+   641→   641→                {tt.lang_detected}: {LANGUAGE_NAMES[base.language_detected] ?? base.language_detected}
+   642→   642→              </p>
+   643→   643→            </div>
+   644→   644→          </div>
+   645→   645→        )}
+   646→   646→        {/* PRD §11/§12 — applicability / state notes (only for a confirmed jurisdiction) */}
+   647→   647→        {view.jurisdiction_note && base.jurisdiction.country !== "UNKNOWN" && (
+   648→   648→          <div className="flex items-start gap-3.5 rounded-2xl border border-slate-300 bg-slate-50 p-4">
+   649→   649→            <Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+   650→   650→            <p className="text-sm leading-relaxed text-slate-700">{view.jurisdiction_note}</p>
+   651→   651→          </div>
+   652→   652→        )}
+   653→   653→        {base.overall_confidence < 0.75 && (
+   654→   654→          <div className="flex items-start gap-3.5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+   655→   655→            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+   656→   656→            <div>
+   657→   657→              <div className="text-sm font-extrabold text-amber-800">{tt.rs_lowconf_t}</div>
+   658→   658→              <p className="mt-1 text-sm leading-relaxed text-amber-800/90">{tt.rs_lowconf_d}</p>
+   659→   659→            </div>
+   660→   660→          </div>
+   661→   661→        )}
+   662→   662→        {/* receipt date capture — the single most important missing fact */}
+   663→   663→        {n.missingReceipt && !n.completed && (
+   664→   664→          <div className="rounded-2xl border border-amber-300 bg-amber-50/80 p-4">
+   665→   665→            <div className="flex flex-wrap items-center justify-between gap-3">
+   666→   666→              <div className="flex items-start gap-3">
+   667→   667→                <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+   668→   668→                <div>
+   669→   669→                  <div className="text-sm font-extrabold text-amber-900">⚠ {tt.nl_receipt_missing}</div>
+   670→   670→                  <p className="mt-0.5 text-[13px] leading-relaxed text-amber-800">{tt.ac_cannot_calc}</p>
+   671→   671→                </div>
+   672→   672→              </div>
+   673→   673→              <div className="flex flex-wrap items-center gap-2">
+   674→   674→                <input
+   675→   675→                  type="date"
+   676→   676→                  value={flags.receiptInput}
+   677→   677→                  onChange={(e) => flags.setReceiptInput(e.target.value)}
+   678→   678→                  aria-label={tt.rp_receipt_ph}
+   679→   679→                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100"
+   680→   680→                />
+   681→   681→                <button
+   682→   682→                  onClick={() => flags.receiptInput && actions.saveReceipt(flags.receiptInput)}
+   683→   683→                  disabled={!flags.receiptInput || flags.receiptBusy}
+   684→   684→                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
+   685→   685→                >
+   686→   686→                  {flags.receiptBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+   687→   687→                  {tt.rp_receipt_add}
+   688→   688→                </button>
+   689→   689→              </div>
+   690→   690→            </div>
+   691→   691→            {flags.savedFlash === "receipt_saved" && (
+   692→   692→              <p className="mt-2.5 text-[12px] font-bold text-emerald-600">✓ {tt.rp_receipt_saved}</p>
+   693→   693→            )}
+   694→   694→          </div>
+   695→   695→        )}
+   696→   696→      </div>
+   697→   697→
+   698→   698→      {/* 1 · ACTION CENTER */}
+   699→   699→      <div className="mt-6">
+   700→   700→        <ActionCenter view={view} t={tt} locale={locale} />
+   701→   701→      </div>
+   702→   702→
+   703→   703→      {/* 2 · DEADLINE */}
+   704→   704→      <div className="mt-5">
+   705→   705→        <SectionCard icon={CalendarClock} title={tt.rdl_title} sub={tt.rdl_sub}>
+   706→   706→          <div className="grid gap-4">
+   707→   707→            {view.deadlines.map((d, i) => {
+   708→   708→              const u = d.status === "calculated" ? d.days_left : null;
+   709→   709→              return (
+   710→   710→                <div key={i} className={`rounded-xl border p-4 ${d.status === "calculated" ? "border-slate-200" : "border-amber-200 bg-amber-50/50"}`}>
+   711→   711→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   712→   712→                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide ${d.status === "calculated" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-300 bg-amber-50 text-amber-700"}`}>
+   713→   713→                      {d.status === "calculated" ? `✓ ${tt.rdl_calculated}` : `⚠ ${tt.rdl_missing}`}
+   714→   714→                    </span>
+   715→   715→                    {d.status === "calculated" && <DeadlineCountdown daysLeft={u} t={dlLabels} />}
+   716→   716→                  </div>
+   717→   717→                  <p className="mt-2.5 text-sm font-bold text-slate-900">{d.label}</p>
+   718→   718→                  <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{d.description}</p>
+   719→   719→                  {d.status === "calculated" ? (
+   720→   720→                    <>
+   721→   721→                      <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+   722→   722→                        <span className="font-mono text-2xl font-extrabold text-slate-900">{fmtDateFor(d.deadline, locale)}</span>
+   723→   723→                        <span className="text-xs font-semibold text-slate-500">{d.anchor_source === "user_input" ? tt.rdl_from_user : tt.rdl_from_doc}</span>
+   724→   724→                      </div>
+   725→   725→                      <WhyBox label={tt.ac_why}>
+   726→   726→                        <span className="font-semibold">{tt.rdl_method}</span>
+   727→   727→                        <br />
+   728→   728→                        {d.anchor_field
+   729→   729→                          ? `${fmtDateFor(d.anchor_date, locale)} (${d.anchor_source === "user_input" ? tt.tl_user : tt.tl_doc}) + ${d.period_days} ${d.business_days ? "business" : ""} days`
+   730→   730→                          : ""}
+   731→   731→                        {d.rule_source_id && (
+   732→   732→                          <span className="mt-1.5 block"><CitationChip sid={d.rule_source_id} /></span>
+   733→   733→                        )}
+   734→   734→                      </WhyBox>
+   735→   735→                      {d.days_left !== null && d.days_left > 1 && (
+   736→   736→                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+   737→   737→                          <BellPlus className="h-4 w-4 text-slate-400" />
+   738→   738→                          {[7, 3, 1].map((num) => (
+   739→   739→                            <button
+   740→   740→                              key={num}
+   741→   741→                              onClick={() => actions.downloadFile(`lexlens-reminder-${num}d.ics`, buildIcs(d.deadline!, d.label, num), "text/calendar")}
+   742→   742→                              className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+   743→   743→                            >
+   744→   744→                              −{num} {locale === "en" ? (num === 1 ? "day" : "days") : locale === "hi" ? "दिन" : locale === "zh" ? "天" : "jour(s)"}
+   745→   745→                            </button>
+   746→   746→                          ))}
+   747→   747→                        </div>
+   748→   748→                      )}
+   749→   749→                    </>
+   750→   750→                  ) : (
+   751→   751→                    <div className="mt-3">
+   752→   752→                      <p className="text-[13px] font-medium leading-relaxed text-amber-800">{d.missing_reason}</p>
+   753→   753→                      {d.anchor_field && d.anchor_field !== "explicit" && d.anchor_field !== "receipt_date" && (
+   754→   754→                        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+
+[showing lines 55-754 of 1216; use offset=755 with limit to continue reading]

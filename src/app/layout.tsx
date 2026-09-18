@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/components/lexlens/language-provider";
+import { ReminderWatcher } from "@/components/lexlens/reminder-watcher";
 import { SiteHeader } from "@/components/lexlens/site-header";
 import { SiteFooter } from "@/components/lexlens/site-footer";
 
@@ -54,6 +55,7 @@ export default function RootLayout({
           <SiteHeader />
           <main className="flex-1">{children}</main>
           <SiteFooter />
+          <ReminderWatcher />
         </LanguageProvider>
         <Toaster />
       </body>

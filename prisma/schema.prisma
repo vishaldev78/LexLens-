@@ -26,6 +26,7 @@ model AnalysisSession {
   expiresAt DateTime
 
   notices Notice[]
+  reminders Reminder[]
 
   @@index([expiresAt])
 }
@@ -69,8 +70,44 @@ model Notice {
   drafts        ResponseDraft[]
   briefs        LawyerBrief[]
   evidences     Evidence[]
+  reminders     Reminder[]
 
   @@index([sessionId, updatedAt])
+  @@index([expiresAt])
+}
+
+/// Temporary deadline reminder (FEATURE: reminder system).
+///
+/// Reminders are ALWAYS anchored to the deterministically calculated deadline
+/// (Notice.deadlineDate — produced by the deadline engine, never by the AI):
+///   • `deadlineDate` snapshots the engine-computed deadline at set-time; the
+///     API refuses to create a reminder when that anchor is missing or stale.
+///   • At most ONE ACTIVE reminder exists per notice; setting/editing
+///     replaces it, cancelling deletes it — no user history is kept.
+///   • Rows are session-scoped (HttpOnly cookie session, no accounts) and
+///     expire together with the analysis session (24h sliding TTL).
+model Reminder {
+  id           String    @id @default(cuid())
+  sessionId    String
+  session      AnalysisSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  noticeId     String
+  notice       Notice    @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  // Snapshot of the deterministic deadline this reminder is anchored to.
+  deadlineDate DateTime
+  deadlineRule String?
+  sourceId     String?
+  // When to notify the user (absolute instant, client-local timezone aware).
+  remindAt     DateTime
+  // ACTIVE → NOTIFIED once the browser has been notified (fire exactly once).
+  status       String    @default("ACTIVE")
+  notifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  expiresAt    DateTime
+
+  @@index([sessionId])
+  @@index([noticeId])
+  @@index([status, remindAt])
   @@index([expiresAt])
 }
 

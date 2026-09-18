@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
 import { ActionCenter, BriefView, TimelineView } from "@/components/lexlens/case-widgets";
+import { ReminderSection } from "@/components/lexlens/reminder-card";
 import { ConfidenceBar, CitationChip, DeadlineCountdown, SectionCard, StatusBadge, WhyBox, fmtDateFor } from "@/components/lexlens/case-ui";
 import { buildBrief, briefToText, buildCaseView, buildIcs, templateDraft } from "@/lib/lexlens/case-engine";
 import { todayISO } from "@/lib/lexlens/deadline-engine";
@@ -48,6 +49,7 @@ import {
   type CaseBase,
   type LocalizedBlock,
   type Locale,
+  type ReminderDTO,
   type UserCaseState,
   type UserPosition,
 } from "@/lib/lexlens/types";
@@ -89,6 +91,7 @@ interface Detail {
   base: CaseBase | null;
   userState: UserCaseState;
   hasBrief: boolean;
+  reminder: ReminderDTO | null;
   evidenceRows: { id: string; name: string; size: number; mimeType: string; createdAt: string }[];
   noticeText: string | null;
 }
@@ -378,6 +381,7 @@ function ReportInner() {
               }}
               actions={{
                 saveReceipt,
+                refresh: () => void load(),
                 setInput,
                 setPosition,
                 addEvidence,
@@ -471,6 +475,7 @@ interface Flags {
 
 interface Actions {
   saveReceipt: (raw: string) => void;
+  refresh: () => void;
   setInput: (field: string, kind: "date" | "text" | "number", raw: string) => void;
   setPosition: (p: UserPosition) => void;
   addEvidence: (files: FileList | null) => Promise<void>;
@@ -505,6 +510,9 @@ function ReportBody({
   const base = detail.base!;
   const sev = base.severity.level;
   const meta = view.deadlines.find((d) => d.status === "calculated");
+  // The reminder UI attaches to the PRIMARY calculated deadline only — there is
+  // at most one ACTIVE reminder per notice (the deterministic deadline anchor).
+  const primaryDeadlineIdx = view.deadlines.findIndex((d) => d.status === "calculated");
   const dlLabels = { noDate: tt.rs_no_date, overdue: tt.rs_overdue, today: tt.rs_today, oneLeft: tt.rs_1_day_left, daysLeft: tt.rs_days_left, cs_overdue: tt.cs_overdue, rdl_urgency_critical: tt.rdl_urgency_critical, rdl_none: tt.rdl_none, rs_days_left: tt.rs_days_left };
 
   const [completedBusy, setCompletedBusy] = useState(false);
@@ -732,6 +740,18 @@ function ReportBody({
                           <span className="mt-1.5 block"><CitationChip sid={d.rule_source_id} /></span>
                         )}
                       </WhyBox>
+                      {/* Reminder system — anchored to THIS deterministic deadline */}
+                      {i === primaryDeadlineIdx && d.deadline && (
+                        <ReminderSection
+                          noticeId={n.id}
+                          deadlineISO={d.deadline}
+                          deadlineLabel={d.label}
+                          reminder={detail.reminder}
+                          tt={tt}
+                          locale={locale}
+                          onChanged={actions.refresh}
+                        />
+                      )}
                       {d.days_left !== null && d.days_left > 1 && (
                         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
                           <BellPlus className="h-4 w-4 text-slate-400" />

@@ -12,6 +12,7 @@ import {
 } from "@/lib/lexlens/server/notices";
 import { validateAnalysis } from "@/lib/lexlens/validator";
 import { fillRulePackRights } from "@/lib/lexlens/server/analyze";
+import { toReminderDTO } from "@/lib/lexlens/server/reminders";
 import { classifyNotice, type CaseBase } from "@/lib/lexlens/types";
 import { todayISO } from "@/lib/lexlens/deadline-engine";
 import type { UserInputValue } from "@/lib/lexlens/types";
@@ -40,6 +41,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
       where: { noticeId: notice.id, sessionId: session.id },
       orderBy: { createdAt: "asc" },
     });
+    // The notice's ACTIVE deadline reminder (session-scoped, deadline-anchored).
+    const activeReminder = await db.reminder.findFirst({
+      where: { noticeId: notice.id, sessionId: session.id, status: "ACTIVE" },
+      orderBy: { remindAt: "asc" },
+    });
 
     const state = parseUserState(notice.userState);
     // PRD §9 — refuse to serve an inconsistent report.
@@ -52,6 +58,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
         draft: draft ? { text: draft.content, source: draft.source as "ai" | "template", at: draft.updatedAt.getTime() } : state.draft,
       },
       hasBrief: !!brief,
+      reminder: activeReminder ? toReminderDTO(activeReminder, notice.title) : null,
       evidenceRows: evidence.map((e) => ({ id: e.id, name: e.name, size: e.size, mimeType: e.mimeType, createdAt: e.createdAt.toISOString() })),
       noticeText: notice.noticeText,
     });

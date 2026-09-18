@@ -247,6 +247,19 @@ export interface DeadlineCalc {
   source_ref: SourceRef | null;
 }
 
+/** Deadline reminder (reminder system). Always anchored to a deterministically
+ *  calculated deadline — never AI-generated. Session-scoped; no accounts. */
+export interface ReminderDTO {
+  id: string;
+  noticeId: string;
+  noticeTitle: string;
+  deadlineDate: string; // ISO YYYY-MM-DD — deterministic deadline snapshot
+  deadlineRule: string | null;
+  sourceId: string | null;
+  remindAtMs: number; // absolute epoch ms — timezone-safe
+  status: "ACTIVE" | "NOTIFIED";
+}
+
 export interface TimelineEvent {
   key: string;
   label: string;

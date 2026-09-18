@@ -170,3 +170,28 @@ Verification (all green):
 Stage Summary:
 - LexLens is now a fully anonymous, session-isolated legal-notice analysis tool: Landing → Upload/Paste → Analyze → Report → Download PDF → Start New Analysis; no accounts, no history, 24h TTL auto-expiry, server-side session firewall on every resource.
 - Legal isolation: INDIA/USA rule packs strictly separated with server-side claim rejection; deterministic deadlines from canonical facts; EN/HI presentation only.
+
+---
+Task ID: 5
+Agent: Super Z (main agent)
+Task: Add a Reminder System — receipt date → deterministic deadline → Set Reminder → browser notification (no login/signup, session-scoped, no user history)
+
+Work Log:
+- Schema: added session-scoped Reminder model (prisma/schema.prisma) — sessionId+noticeId (cascade deletes), deadlineDate snapshot of the deterministic deadline, remindAt, status ACTIVE|NOTIFIED, expiresAt; indexes on sessionId/noticeId/(status,remindAt)/expiresAt; db push + generate done.
+- Server helpers (src/lib/lexlens/server/reminders.ts): toReminderDTO + syncRemindersWithDeadline (deadline change shifts ACTIVE reminders by the exact delta, preserving time-of-day; deadline removed ⇒ reminder cancelled).
+- recalcAndStoreDeadline (server/notices.ts) now calls syncRemindersWithDeadline — reminders always ride the recalculated deterministic deadline.
+- APIs: POST/DELETE /api/notices/[id]/reminder (set=edit replaces the single ACTIVE row; DELETE cancels), GET /api/reminders (session ACTIVE list), POST /api/reminders/ack (fire-once marking, sessionId-scoped). Guards: no calculated deadline → 409; stale deadline anchor (client echo mismatch) → 409; past time → 400; after deadline day → 400; foreign session → 404.
+- GET /api/notices/[id] now returns `reminder` (active reminder DTO).
+- session.ts: reminder.updateMany in the sliding-TTL extension + reminder.deleteMany in cleanupIfDue.
+- UI (src/components/lexlens/reminder-card.tsx): ReminderSection rendered under the PRIMARY calculated deadline on /notices/[id] — Set Reminder button → dialog (deterministic deadline shown & never editable; quick presets Deadline day/−1d/−3d; date+time inputs bounded by today..deadline; browser-notification permission requested on user gesture with granted/denied/unsupported states; session-scope note). Active state shows chip + reminder time + anchor deadline + Edit/Cancel. Success toasts: "Reminder set successfully." / "Reminder updated successfully." / "Reminder cancelled."
+- Global watcher (src/components/lexlens/reminder-watcher.tsx, mounted in layout): polls /api/reminders every 20s + on focus/visibility; due reminders → Web Notification (title "LexLens — deadline reminder", click → opens the notice) + in-app toast fallback (works when permission denied); POST ack fire-once. i18n keys rem_* added for EN+HI.
+- ReminderDTO type lives in lib/lexlens/types.ts (client-safe); server module re-exports it.
+- Dev server restarted once (stale in-memory Prisma Client lacked the new model — caught via dev.log 500s, fixed by restart).
+
+Verification (all green):
+- node scripts/test-reminder.mjs: 32/32 — receipt 2026-09-19 → deadline 2026-10-04 (§138 15-day, deterministic); set/edit (one active per notice); stale-anchor 409; past/after-deadline 400; no-deadline 409; cross-session set/cancel 404 + empty list + foreign ack no-op; receipt change → deadline 2026-10-05 + reminder shifted +1 day; due reminder → ack fire-once; cancel; notice deletion cascade; test data fully cleaned.
+- Browser E2E (agent-browser, golden path §138 sample → /notices/[id]): Set Reminder row renders; dialog prefilled 2026-10-03 09:00 (deadline −1d); permission auto-denied in headless → graceful fallback message; Confirm → "Reminder set successfully."; card shows "REMINDER ACTIVE · 3 Oct 2026, 9:00 · Exact deadline: 4 Oct 2026" + Edit/Cancel; Edit → Deadline day preset → "Reminder updated successfully."; reload persists (4 Oct 2026, 9:00); Cancel → "Reminder cancelled." + Set Reminder returns; due reminder (remindAt=now−1s) → watcher fired in 2.2s (DB notifiedAt) and in-page loop saw the "Deadline reminder" toast (toast_seen=true); ack left zero re-fires.
+- bun lint clean; tsc --noEmit: 0 src errors; dev.log error-free; screenshot scripts/reminder-dialog.png.
+
+Stage Summary:
+- Reminder system complete: receipt date → deterministic deadline (never AI) → Set Reminder → browser/local notification, all without login/signup; reminders are temporary + session-scoped (expire with the 24h anonymous session, cascade-deleted, no user history), editable and cancellable, and automatically follow any deadline recalculation.

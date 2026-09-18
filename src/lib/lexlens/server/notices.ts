@@ -5,6 +5,7 @@
 import { db } from "@/lib/db";
 import type { Notice } from "@prisma/client";
 import { deriveDeadline, deriveStatus, isoFromDate, type NoticeStatus } from "./deadline";
+import { syncRemindersWithDeadline } from "./reminders";
 import type { CaseBase, CaseJurisdiction, UserCaseState } from "../types";
 import { emptyUserState } from "../types";
 
@@ -174,7 +175,7 @@ export async function recalcAndStoreDeadline(notice: Notice, receiptOverrideISO?
   const receiptISO = receiptOverrideISO !== undefined ? receiptOverrideISO : isoFromDate(notice.receiptDate);
   const country = (["INDIA", "USA"].includes(notice.jurisdiction) ? notice.jurisdiction : "UNKNOWN") as "INDIA" | "USA" | "UNKNOWN";
   const dl = deriveDeadline(notice.noticeType, base, receiptISO, country, base?.debt_rule_applicable ?? null);
-  return db.notice.update({
+  const updated = await db.notice.update({
     where: { id: notice.id },
     data: {
       receiptDate: receiptISO ? new Date(`${receiptISO}T00:00:00Z`) : null,
@@ -184,6 +185,10 @@ export async function recalcAndStoreDeadline(notice: Notice, receiptOverrideISO?
       updatedAt: new Date(),
     },
   });
+  // Reminders ride on the deterministic deadline: shift/cancel them so they
+  // never outlive or contradict the recalculated anchor.
+  await syncRemindersWithDeadline(notice.id, isoFromDate(notice.deadlineDate), dl.deadlineDate);
+  return updated;
 }
 
 /** Session-ownership-checked fetch for route handlers. Throws a 404-shaped
