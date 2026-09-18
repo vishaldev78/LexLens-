@@ -182,26 +182,6 @@ export function BriefView({
   onPrint: () => void;
   onDownload: () => void;
 }) {
-  const Row = ({ k, v }: { k: string; v: React.ReactNode }) => (
-    <div className="grid grid-cols-[minmax(120px,160px)_1fr] gap-3 py-1.5 text-[13px]">
-      <span className="font-semibold text-slate-500">{k}</span>
-      <span className="font-medium text-slate-900">{v}</span>
-    </div>
-  );
-  const List = ({ items, mark, empty }: { items: string[]; mark: "ok" | "warn"; empty?: string }) =>
-    items.length ? (
-      <ul className="space-y-1">
-        {items.map((x, i) => (
-          <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
-            <span className={mark === "ok" ? "text-emerald-600" : "text-amber-500"}>{mark === "ok" ? "✓" : "⚠"}</span>
-            {x}
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <p className="text-[13px] text-slate-400">—</p>
-    );
-
   return (
     <div className="rounded-xl border-2 border-indigo-100 bg-white p-5 sm:p-7">
       <div className="border-b-2 border-slate-900 pb-3">
@@ -214,12 +194,12 @@ export function BriefView({
       </div>
 
       <div className="mt-3 divide-y divide-slate-100">
-        <Row k={t.br_matter} v={brief.matter} />
-        <Row k={t.br_jur} v={brief.jurisdiction} />
-        <Row k={t.br_claimant} v={brief.claimant} />
-        {brief.recipient && <Row k={t.br_recipient} v={brief.recipient} />}
-        <Row k={t.br_amount} v={brief.amount ?? "—"} />
-        <Row
+        <BriefRow k={t.br_matter} v={brief.matter} />
+        <BriefRow k={t.br_jur} v={brief.jurisdiction} />
+        <BriefRow k={t.br_claimant} v={brief.claimant} />
+        {brief.recipient && <BriefRow k={t.br_recipient} v={brief.recipient} />}
+        <BriefRow k={t.br_amount} v={brief.amount ?? "—"} />
+        <BriefRow
           k={t.br_dates}
           v={
             brief.important_dates.length ? (
@@ -236,7 +216,7 @@ export function BriefView({
             )
           }
         />
-        <Row
+        <BriefRow
           k={t.br_prov}
           v={
             brief.provisions.length ? (
@@ -250,26 +230,26 @@ export function BriefView({
             )
           }
         />
-        <Row k={t.br_deadline} v={brief.deadline} />
-        <Row k={t.br_position} v={brief.position ?? "—"} />
+        <BriefRow k={t.br_deadline} v={brief.deadline} />
+        <BriefRow k={t.br_position} v={brief.position ?? "—"} />
       </div>
 
       <div className="mt-4 grid gap-5 border-t border-slate-100 pt-4 sm:grid-cols-2">
         <div>
           <h4 className="text-xs font-extrabold uppercase tracking-wide text-emerald-700">{t.br_facts_v}</h4>
-          <div className="mt-2"><List items={brief.verified_facts} mark="ok" /></div>
+          <div className="mt-2"><BriefList items={brief.verified_facts} mark="ok" /></div>
         </div>
         <div>
           <h4 className="text-xs font-extrabold uppercase tracking-wide text-amber-700">{t.br_facts_u}</h4>
-          <div className="mt-2"><List items={brief.unverified_facts} mark="warn" /></div>
+          <div className="mt-2"><BriefList items={brief.unverified_facts} mark="warn" /></div>
         </div>
         <div>
           <h4 className="text-xs font-extrabold uppercase tracking-wide text-slate-700">{t.br_ev_a}</h4>
-          <div className="mt-2"><List items={brief.evidence_available} mark="ok" /></div>
+          <div className="mt-2"><BriefList items={brief.evidence_available} mark="ok" /></div>
         </div>
         <div>
           <h4 className="text-xs font-extrabold uppercase tracking-wide text-amber-700">{t.br_ev_m}</h4>
-          <div className="mt-2"><List items={brief.evidence_missing} mark="warn" /></div>
+          <div className="mt-2"><BriefList items={brief.evidence_missing} mark="warn" /></div>
         </div>
       </div>
 
@@ -298,6 +278,31 @@ export function BriefView({
         </button>
       </div>
     </div>
+  );
+}
+
+/* ───────────────────────── brief sub-components (module scope) ───────────────────────── */
+
+function BriefRow({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(120px,160px)_1fr] gap-3 py-1.5 text-[13px]">
+      <span className="font-semibold text-slate-500">{k}</span>
+      <span className="font-medium text-slate-900">{v}</span>
+    </div>
+  );
+}
+
+function BriefList({ items, mark }: { items: string[]; mark: "ok" | "warn" }) {
+  if (!items.length) return <p className="text-[13px] text-slate-400">—</p>;
+  return (
+    <ul className="space-y-1">
+      {items.map((x, i) => (
+        <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
+          <span className={mark === "ok" ? "text-emerald-600" : "text-amber-500"}>{mark === "ok" ? "✓" : "⚠"}</span>
+          {x}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -1,6 +1,7 @@
 // LexLens — production schema (SQLite).
-// Every user-owned row carries userId and is always queried through
-// requireUser() helpers so data isolation is enforced at the data layer.
+// Every user-owned row carries userId and is always queried through the
+// data-access helpers so scoping is enforced at the data layer. LexLens runs
+// as a single local workspace: all rows belong to the one "local" user.
 
 generator client {
   provider = "prisma-client-js"
@@ -14,9 +15,7 @@ datasource db {
 model User {
   id            String   @id @default(cuid())
   username      String   @unique
-  age           Int
   email         String?  @unique
-  passwordHash  String
   // Notification preferences (sensible defaults; user-tunable in Settings)
   notifyEnabled Boolean  @default(true)
   remind7       Boolean  @default(true)

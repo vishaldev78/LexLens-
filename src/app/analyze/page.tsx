@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   ClipboardPaste,
   UploadCloud,
@@ -21,7 +20,6 @@ import {
   FileUp,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
-import { useUser } from "@/hooks/use-user";
 import { SAMPLES } from "@/lib/lexlens/samples";
 import { LOCALE_LABELS, OUTPUT_LOCALES } from "@/lib/lexlens/types";
 
@@ -44,7 +42,6 @@ interface PickedFile {
 export default function AnalyzePage() {
   const { t, locale } = useLang();
   const router = useRouter();
-  const { user, loading: userLoading } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>("paste");
@@ -157,27 +154,6 @@ export default function AnalyzePage() {
     { key: "file", label: t.an_tab_file, icon: UploadCloud },
     { key: "samples", label: t.an_tab_samples, icon: FlaskConical },
   ];
-
-  /* ── signed-out state ── */
-  if (!userLoading && !user) {
-    return (
-      <div className="mx-auto max-w-md px-4 py-24 text-center">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-          <ShieldCheck className="h-7 w-7" />
-        </span>
-        <h1 className="mt-4 text-xl font-bold text-slate-900">{t.cm_signin_required}</h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">{t.au_signup_sub}</p>
-        <div className="mt-6 flex flex-col justify-center gap-2.5 sm:flex-row">
-          <Link href="/login?next=%2Fanalyze" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700">
-            {t.nav_login}
-          </Link>
-          <Link href="/signup" className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">
-            {t.nav_signup}
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative">

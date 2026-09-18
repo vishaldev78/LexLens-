@@ -26,7 +26,7 @@ const en = {
   hero_cta2: "See how it works",
   hero_b1: "Statute-verified citations",
   hero_b2: "4 languages",
-  hero_b3: "Private account included",
+  hero_b3: "Private workspace included",
 
   how_title: "How LexLens works",
   how_sub: "Three steps. Under a minute. No legal jargon left behind.",
@@ -478,7 +478,7 @@ const en = {
   cm_signin_required: "Please sign in to continue.",
   pr_saving: "Saving your report…",
 
-  ft_trust: "Private by design. Your documents stay in your account.",
+  ft_trust: "Private by design. Your documents stay on your machine.",
 
   lang_switch: "Interface language",
 };
@@ -952,7 +952,7 @@ const hi: UiStrings = {
   cm_signin_required: "जारी रखने के लिए कृपया साइन इन करें।",
   pr_saving: "आपकी रिपोर्ट सहेजी जा रही है…",
 
-  ft_trust: "डिज़ाइन से निजी। आपके दस्तावेज़ आपके खाते में सुरक्षित रहते हैं।",
+  ft_trust: "डिज़ाइन से निजी। आपके दस्तावेज़ आपके डिवाइस पर सुरक्षित रहते हैं।",
 
   lang_switch: "इंटरफ़ेस भाषा",
 };
@@ -973,7 +973,7 @@ const zh: UiStrings = {
   hero_cta2: "查看工作原理",
   hero_b1: "法条核验引用",
   hero_b2: "4 种语言",
-  hero_b3: "含私人账户",
+  hero_b3: "私人工作区",
 
   how_title: "LexLens 的工作原理",
   how_sub: "三步完成，不到一分钟，没有晦涩法律术语。",
@@ -1423,7 +1423,7 @@ const zh: UiStrings = {
   feat_f8t: "来源可追溯",
   feat_f8d: "点击任何事实、期限或权利旁的“为什么？”，即可查看其确切来源——文件、法规或您自己的输入。",
 
-  ft_trust: "隐私优先设计。您的文档仅保存在您的账户中。",
+  ft_trust: "隐私优先设计。您的文档仅保存在您的设备上。",
 
   lang_switch: "界面语言",
 };
@@ -1444,7 +1444,7 @@ const fr: UiStrings = {
   hero_cta2: "Voir le fonctionnement",
   hero_b1: "Références légales vérifiées",
   hero_b2: "4 langues",
-  hero_b3: "Compte privé inclus",
+  hero_b3: "Espace privé inclus",
 
   how_title: "Comment fonctionne LexLens",
   how_sub: "Trois étapes. Moins d'une minute. Zéro jargon juridique.",
@@ -1894,7 +1894,7 @@ const fr: UiStrings = {
   feat_f8t: "Traçabilité des sources",
   feat_f8d: "Cliquez sur Pourquoi ? à côté de chaque fait, échéance ou droit pour voir exactement d'où il vient — document, loi ou votre propre saisie.",
 
-  ft_trust: "Confidentiel par conception. Vos documents restent dans votre compte.",
+  ft_trust: "Confidentiel par conception. Vos documents restent sur votre appareil.",
 
   lang_switch: "Langue de l'interface",
 };

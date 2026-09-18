@@ -50,7 +50,9 @@ export function detectKind(buf: Buffer, declaredMime: string, filename: string):
 /** Extract text from a PDF buffer. Returns null when no text layer exists. */
 async function pdfText(buf: Buffer): Promise<string | null> {
   try {
-    const mod = await import("pdf-parse");
+    // Import the library entry directly: the package root contains debug code
+    // that tries to read a test PDF from disk when loaded as the main module.
+    const mod = await import("pdf-parse/lib/pdf-parse.js");
     const pdfParse = (mod as unknown as { default?: unknown }).default ?? mod;
     const out = (await (pdfParse as (b: Buffer) => Promise<{ text: string }>)(buf)) as { text: string };
     const text = (out.text ?? "").replace(/\u0000/g, "").trim();

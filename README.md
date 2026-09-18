@@ -1,60 +1,76 @@
-# LexLens — Legal Notice Intelligence (MVP)
+# LexLens — Legal Notice Intelligence
 
 > Any legal notice. Any language. Understood in 60 seconds.
 
 LexLens converts legal notices (debt-collection letters, cheque-bounce notices, eviction
 demands) into a plain-language, citation-verified breakdown — sender, demands, deadlines,
 severity, your rights and an action plan — in **English, हिन्दी, 中文 and Français**.
+Every analyzed notice is saved to your **private local workspace** with its report,
+deadlines, evidence, reminders and a downloadable structured PDF.
 
 Built on Next.js 16 (App Router) with a clean white production UI (Poppins for the
-interface, Times New Roman serif for legal document text).
+interface, Times New Roman serif for legal document text). **No accounts, no sign-in** —
+the app runs as a single private workspace on your machine.
 
 ## Quick start (local VS Code)
 
 ```bash
-# 1. install dependencies (bun or npm both work)
-bun install        # or: npm install
+# 1. install dependencies (npm or bun both work)
+npm install
 
-# 2. run the dev server
-bun run dev        # or: npm run dev
+# 2. create the environment file
+cp .env.example .env        # Windows: copy .env.example .env
 
-# 3. open http://localhost:3000
+# 3. create / update the local SQLite database
+npm run db:push
+
+# 4. run the dev server
+npm run dev
+
+# 5. open http://localhost:3000
 ```
 
-That's it — no database, no external API keys required to try the demo.
+Environment variables (see `.env.example`):
+
+| Variable       | Required | Purpose                                                        |
+|----------------|----------|----------------------------------------------------------------|
+| `DATABASE_URL` | yes      | SQLite database file, e.g. `file:./db/custom.db`              |
+| SDK credentials| optional | When the Z.ai SDK credentials are present in the environment the LLM engine is used; otherwise the app automatically falls back to the built-in offline engine and never hard-fails |
 
 ## Pages
 
-| Route         | Purpose |
-|---------------|---------|
-| `/`           | Landing page — how it works, safety features, languages, coverage |
-| `/analyze`    | Upload section — paste text, upload `.txt`/`.md`, or launch fictional samples |
-| `/processing` | Working section — animated 9-stage pipeline, calls the analysis API |
-| `/result`     | Result section — full report: severity, plain-language summary (4-language tabs), deadlines, demands, rights, action plan, citations, printable |
+| Route             | Purpose |
+|-------------------|---------|
+| `/`               | Landing page — how it works, safety features, languages, coverage |
+| `/analyze`        | Upload a notice — paste text, upload **PDF / PNG / JPG / WEBP**, or launch fictional samples |
+| `/processing`     | Working section — animated 9-stage pipeline while the analysis runs |
+| `/dashboard`      | Personal dashboard — welcome, active deadlines with live countdowns, recent notices, quick actions |
+| `/notices`        | My Notices library — every saved notice with status, deadline, days remaining, PDF download |
+| `/notices/[id]`   | Full report — Action Center, exact deadline, timeline, key facts, missing information, evidence, legal basis, response draft, lawyer brief, Download Full Report PDF |
+| `/notifications`  | Notification center — deadline reminders (7/3/1 days, due date, overdue), mark read |
+| `/settings`       | Notification preferences — choose which reminders you receive |
 
-The three app pages pass state via `sessionStorage` (see `src/lib/lexlens/run-store.ts`),
-so refreshing the processing/result page never loses your report. The interface language
-(EN/HI/ZH/FR) is switchable from the navbar and persists in `localStorage`.
+Deadlines are computed by a **deterministic deadline engine** (never by the AI model):
+the notice receipt date + the statutory response period gives an exact deadline date,
+stored in the database. Remaining days are recalculated on every request, so countdowns
+are always current. If the receipt date is unknown, the app says so — it never invents
+a date.
 
-### How the AI engine works (two modes)
+## How the analysis engine works (two modes)
 
 | Mode | When | Notes |
 |------|------|-------|
-| **LLM engine** (`glm-4.6` via `z-ai-web-dev-sdk`) | Default in the Z.ai sandbox, or locally when SDK credentials are configured | Full generative analysis, ~15–28 s |
-| **Offline demo engine** (`src/lib/lexlens/fallback-analyzer.ts`) | Automatic fallback when the LLM is unreachable (timeouts, no credentials, network blocked) | Rule-based pattern matching for the supported notice families + generic mode, responds in milliseconds |
-
-The result page shows which engine produced a report (an "Offline engine" banner appears
-when the fallback was used). This is the same degradation strategy described in the TRD:
-**the app never hard-fails with a network error.**
+| **LLM engine** | Default when the SDK credentials are configured | Full generative analysis, ~15–28 s |
+| **Offline engine** (`src/lib/lexlens/fallback-analyzer.ts`) | Automatic fallback when the LLM is unreachable (timeouts, no credentials, network blocked) | Rule-based pattern matching for the supported notice families + generic mode, responds in milliseconds |
 
 Both modes run the same post-processing safety pass:
 
-- citation whitelist (model may only cite the versioned statute corpus in
+- citation whitelist (the model may only cite the versioned statute corpus in
   `src/lib/lexlens/corpus.ts`)
-- deadline recomputation (`days_from_today` derived server-side)
+- deadline recomputation (server-side, deterministic)
 - red-severity guard: strips any "ignore/disregard" language and injects a mandatory
   consult-a-lawyer step in all four languages
-- confidence caps: auto-cap to 0.72 when no corpus citation matches; hard ceiling at 0.95
+- confidence caps: auto-cap when no corpus citation matches; hard ceiling at 0.95
 - prompt-injection defense: the notice is wrapped as untrusted data
 
 ## Project structure
@@ -62,51 +78,46 @@ Both modes run the same post-processing safety pass:
 ```
 src/
 ├── app/
-│   ├── page.tsx                  # landing page (/)
-│   ├── analyze/page.tsx          # upload page (/analyze)
-│   ├── processing/page.tsx       # working page (/processing)
-│   ├── result/page.tsx           # result page (/result)
-│   ├── layout.tsx                # Poppins font + header/footer shell
-│   ├── globals.css               # theme tokens + .font-legal (Times) + lang helpers
-│   └── api/analyze/route.ts      # POST /api/analyze — LLM + fallback + safety pass
+│   ├── page.tsx                    # landing page (/)
+│   ├── analyze/page.tsx            # upload page (/analyze)
+│   ├── processing/page.tsx         # working page (/processing)
+│   ├── dashboard/                  # dashboard (/dashboard)
+│   ├── notices/                    # notices library + report page (/notices, /notices/[id])
+│   ├── notifications/page.tsx      # notification center (/notifications)
+│   ├── settings/page.tsx           # notification preferences (/settings)
+│   ├── layout.tsx                  # Poppins font + header/footer shell
+│   ├── globals.css                 # theme tokens + .font-legal (Times) + lang helpers
+│   └── api/                        # notices CRUD, analysis, PDF, evidence, draft, brief, notifications
 ├── components/lexlens/
-│   ├── site-header.tsx           # navbar with language switcher
-│   ├── site-footer.tsx           # footer with disclaimer
-│   ├── language-provider.tsx     # UI i18n context (EN/HI/ZH/FR)
-│   ├── pipeline.tsx              # 9-stage animated pipeline visualisation
-│   └── …
-└── lib/lexlens/
-    ├── types.ts                  # analysis schema + UI metadata
-    ├── ui-i18n.ts                # interface string dictionary (4 languages)
-    ├── run-store.ts              # sessionStorage draft/result passing
-    ├── corpus.ts                 # 10-statute versioned mini-corpus (US/IN/ES/EU/UK)
-    ├── samples.ts                # 3 fictional demo notices with dynamic dates
-    └── fallback-analyzer.ts      # offline rule-based engine (4-language output)
+│   ├── site-header.tsx             # navbar (nav links, bell, language switcher)
+│   ├── case-widgets.tsx            # Action Center, Timeline, Brief view
+│   ├── case-ui.tsx                 # shared report UI primitives
+│   └── pipeline.tsx                # 9-stage animated pipeline visualisation
+└── lib/
+    ├── auth.ts                     # local workspace resolution (single private workspace)
+    ├── db.ts                       # Prisma client
+    └── lexlens/
+        ├── deadline-engine.ts      # deterministic deadline engine (only source of deadlines)
+        ├── corpus.ts               # versioned statute mini-corpus (US/IN/EU/UK)
+        ├── samples.ts              # 3 fictional demo notices with dynamic dates
+        ├── fallback-analyzer.ts    # offline rule-based engine (4-language output)
+        └── server/                 # analysis, PDF report, notifications, deadline persistence
 ```
 
-## API contract
-
-```
-POST /api/analyze   { "text": "<notice text>" }
-→ { analysis, processing_ms, pipeline_meta }
-```
-
-`analysis` follows the PRD's structured-output schema: `notice_type`, `jurisdiction`,
-`language_detected`, `sender`, `demands[]`, `deadlines[]`, `severity`, `citations[]`,
-`localized { en, hi, zh, fr }` (summary, key_risk, rights, next_steps),
-`overall_confidence`.
-
-## Demo script (for judges)
+## Demo script
 
 1. On `/analyze` → **Sample notices** tab → **Cheque bounce legal notice** → watch the
-   9-stage pipeline on its own working page → red-severity criminal exposure, 15-day
-   countdown, §138 citation with the actual statute text.
-2. On the result page switch the explanation between **English / हिन्दी / 中文 / Français**
-   — the whole breakdown transcreates (never literal translation).
-3. Switch the **interface language** from the navbar — every page translates.
-4. Try **Debt collection letter** (FDCPA 30-day validation right, NY default-judgment
-   risk) or **Eviction payment demand** (LAU art. 27.2.a + LEC art. 22.2 enervación).
-5. Or paste/upload any notice text of your own and hit **Analyze**.
+   9-stage pipeline → the report opens with red severity, the exact 15-day deadline and
+   the §138 citation. Receipt date is unknown, so the deadline shows "cannot be
+   calculated yet" — add the receipt date and the exact deadline appears instantly.
+2. Open **Dashboard** — the notice appears under active deadlines with a live countdown
+   that updates every day automatically.
+3. Download the **Full Report PDF** — a structured, professionally typeset document.
+4. Switch the explanation between **English / हिन्दी / 中文 / Français** — the whole
+   breakdown transcreates (never literal translation). The interface language is
+   switchable from the navbar and persists.
+5. Try **Debt collection letter** (FDCPA 30-day validation right) or **Eviction payment
+   demand**, or paste/upload any notice of your own.
 
 ## Disclaimer
 

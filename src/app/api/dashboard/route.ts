@@ -33,7 +33,7 @@ export async function GET() {
     ).length;
 
     return NextResponse.json({
-      user: { id: user.id, username: user.username, email: user.email, createdAt: user.createdAt },
+      user: { id: user.id, username: user.username, createdAt: user.createdAt },
       deadlines,
       recentNotices: summaries.slice(0, 6),
       totalNotices: summaries.length,

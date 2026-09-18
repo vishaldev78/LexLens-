@@ -40,6 +40,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       },
       hasBrief: !!brief,
       evidenceRows: evidence.map((e) => ({ id: e.id, name: e.name, size: e.size, mimeType: e.mimeType, createdAt: e.createdAt.toISOString() })),
+      noticeText: notice.noticeText,
     });
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
@@ -78,6 +79,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "That date format is not valid." }, { status: 400 });
       }
       const recalced = await recalcAndStoreDeadline(notice, iso);
+
+      // Mirror the confirmed receipt date into userState so the case view,
+      // drafts and briefs all see the same fact.
+      const state = parseUserState(notice.userState);
+      if (iso) {
+        state.inputs = { ...state.inputs, receipt_date: { value: iso, iso, num: null, at: Date.now() } };
+      } else {
+        delete state.inputs.receipt_date;
+      }
+      await db.notice.update({ where: { id: notice.id }, data: { userState: JSON.stringify(state) } });
+
       return NextResponse.json({ notice: toSummary(recalced, todayISO()) });
     }
 

@@ -701,6 +701,9 @@ export async function generateNoticePdf(input: ReportInput): Promise<Buffer> {
   const range = doc.bufferedPageRange();
   for (let p = range.start; p < range.start + range.count; p++) {
     doc.switchToPage(p);
+    // The footer sits inside the bottom margin; without this, pdfkit treats
+    // the write as an overflow and silently appends blank pages.
+    doc.page.margins.bottom = 0;
     // Header band
     if (p > range.start) {
       doc.font(fontBold).fontSize(8.5).fillColor(INDIGO).text("LEXLENS", left, 34, { characterSpacing: 2 });
