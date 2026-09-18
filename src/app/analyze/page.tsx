@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   FileUp,
   Brain,
+  FileType,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
 import { SAMPLES } from "@/lib/lexlens/samples";
@@ -35,9 +36,9 @@ type Tab = "paste" | "file" | "samples";
 const SAMPLE_ICONS = [Landmark, Scale, Home];
 
 const MAX_MB = 4;
-const ACCEPT_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const ACCEPT_EXTS = new Set(["png", "jpg", "jpeg", "webp"]);
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp";
+const ACCEPT_MIMES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+const ACCEPT_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
+const ACCEPT_ATTR = "application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp";
 
 interface PickedFile {
   name: string;
@@ -51,6 +52,32 @@ export default function AnalyzePage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // pdfjs-dist loaded from CDN at runtime (avoid bundling issues)
+  const loadPDFJS = useCallback(async () => {
+    if (typeof window === "undefined") return null;
+    // Check if already loaded
+    if ((window as Window & { pdfjsLib?: unknown }).pdfjsLib) {
+      return (window as Window & { pdfjsLib: typeof import("pdfjs-dist") }).pdfjsLib;
+    }
+    // Load from CDN
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/pdfjs-dist@4.8.69/build/pdf.mjs";
+    script.type = "module";
+    document.head.appendChild(script);
+    
+    // Wait for load
+    await new Promise<void>((resolve, reject) => {
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load PDF.js"));
+    });
+    
+    // Configure worker
+    const pdfjs = (window as Window & { pdfjsLib: typeof import("pdfjs-dist") }).pdfjsLib;
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs";
+    
+    return pdfjs;
+  }, []);
+
   const [tab, setTab] = useState<Tab>("paste");
   const [jurisdiction, setJurisdiction] = useState<"INDIA" | "USA" | "">("");
   const [text, setText] = useState("");
@@ -59,6 +86,7 @@ export default function AnalyzePage() {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
+
 
   const canStartPaste = text.trim().length >= 40 && !starting;
   const charCount = useMemo(() => text.trim().length, [text]);
@@ -84,18 +112,32 @@ export default function AnalyzePage() {
       setError(invalid);
       return;
     }
-    // Check if file is PDF - OCR coming soon
-    const ext = (f.name.toLowerCase().split(".").pop() ?? "") as string;
-    if (ext === "pdf" || f.type === "application/pdf") {
-      setError("PDF upload is coming soon. Please paste the notice text for now.");
-      return;
-    }
     setPicked({ name: f.name, size: f.size, type: f.type || f.name.split(".").pop()?.toUpperCase() || "file", file: f });
   }
 
   // Client-side OCR with Tesseract.js (runs in browser, no server needed)
   const [ocrProgress, setOcrProgress] = useState<{ status: string; progress: number } | null>(null);
   const [ocrText, setOcrText] = useState<string>("");
+
+  // Render first page of PDF to canvas for OCR
+  const renderPdfFirstPage = useCallback(async (file: File): Promise<HTMLCanvasElement> => {
+    const pdfjs = await loadPDFJS();
+    if (!pdfjs) throw new Error("PDF.js failed to load");
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    
+    // Scale for better OCR quality (2x)
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d")!;
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    
+    await page.render({ canvasContext: context, viewport }).promise;
+    return canvas;
+  }, [loadPDFJS]);
 
   const runOcr = useCallback(async (file: File): Promise<string> => {
     const worker = await TesseractWorker();
@@ -106,9 +148,18 @@ export default function AnalyzePage() {
     await worker.loadLanguage("eng");
     await worker.initialize("eng");
 
+    let imageSource: File | HTMLCanvasElement = file;
+    
+    // If PDF, render first page to canvas first
+    const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    if (ext === "pdf" || file.type === "application/pdf") {
+      setOcrProgress({ status: "Rendering PDF...", progress: 10 });
+      imageSource = await renderPdfFirstPage(file);
+    }
+
     setOcrProgress({ status: "Reading image...", progress: 0 });
 
-    const { data } = await worker.recognize(file, {
+    const { data } = await worker.recognize(imageSource, {
       logger: (m: { status: string; progress: number }) => {
         if (m.status === "recognizing text") {
           setOcrProgress({ status: "Extracting text...", progress: Math.round(m.progress * 100) });
@@ -341,8 +392,8 @@ export default function AnalyzePage() {
                     <span className="text-[11px] text-slate-400">
                       {t.up_max}: {MAX_MB} MB
                     </span>
-                    <span className="mt-2 text-[11px] text-amber-600 font-medium">
-                      PDF support coming soon — use images (PNG/JPG/WebP) or paste text
+                    <span className="mt-2 text-[11px] text-emerald-600 font-medium">
+                      PDF (1st page) + PNG/JPG/WebP — OCR runs in browser
                     </span>
                   </div>
                 ) : (
@@ -350,7 +401,7 @@ export default function AnalyzePage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3">
                         <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600 ring-1 ring-emerald-200">
-                          <FileText className="h-5 w-5" />
+                          {picked.name.toLowerCase().endsWith(".pdf") ? <FileType className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
