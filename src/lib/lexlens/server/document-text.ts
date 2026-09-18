@@ -146,6 +146,11 @@ async function visionOcrImage(buf: Buffer, kind: Exclude<UploadKind, "pdf" | nul
 async function renderPdfPages(buf: Buffer): Promise<Buffer[]> {
   const { createCanvas } = await import("@napi-rs/canvas");
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // Vercel's file tracing can omit pdf.worker.mjs when PDF.js resolves it via
+  // its relative fallback. Registering the explicit module keeps this server
+  // path independent of a worker file on disk.
+  const pdfWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  (globalThis as typeof globalThis & { pdfjsWorker?: typeof pdfWorker }).pdfjsWorker = pdfWorker;
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buf),
     disableFontFace: true,
