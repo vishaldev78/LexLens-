@@ -49,7 +49,15 @@ Environment variables (see `.env.example`):
 | Variable       | Required | Purpose                                                        |
 |----------------|----------|----------------------------------------------------------------|
 | `DATABASE_URL` | yes      | PostgreSQL connection string for the application database      |
+| `ZAI_BASE_URL` | for OCR/LLM | Z AI API base URL, including `/v1`                         |
+| `ZAI_API_KEY` | for OCR/LLM | Z AI API key                                                |
 | SDK credentials| optional | When the Z.ai SDK credentials are present in the environment the LLM engine is used; otherwise the app automatically falls back to the built-in offline engine and never hard-fails |
+
+For scanned PDF and image OCR, configure either `ZAI_BASE_URL` and
+`ZAI_API_KEY` in `.env`, or create `.z-ai-config` in the project root with
+`{"baseUrl":".../v1","apiKey":"..."}`. Keep both files out of source
+control. Without Z AI credentials, only PDFs with an embedded text layer can
+be processed.
 
 ## Flow
 

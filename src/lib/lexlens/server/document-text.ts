@@ -74,7 +74,13 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 async function visionOcr(buf: Buffer, kind: UploadKind): Promise<string | null> {
   if (!kind) return null;
   try {
-    const zai = await ZAI.create();
+    // Prefer deployment environment variables, while retaining the SDK's
+    // project/home-directory config lookup for local development.
+    const baseUrl = process.env.ZAI_BASE_URL?.trim();
+    const apiKey = process.env.ZAI_API_KEY?.trim();
+    const zai = baseUrl && apiKey
+      ? new (ZAI as unknown as new (config: { baseUrl: string; apiKey: string }) => Awaited<ReturnType<typeof ZAI.create>>)({ baseUrl, apiKey })
+      : await ZAI.create();
     const mime = kind === "pdf" ? "application/pdf" : `image/${kind === "jpg" || kind === "jpeg" ? "jpeg" : kind}`;
     const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
     const textPart = { type: "text" as const, text: "Extract ALL text from this legal document, preserving reading order. Output only the extracted text, no commentary." };
