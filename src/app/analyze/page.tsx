@@ -28,9 +28,9 @@ type Tab = "paste" | "file" | "samples";
 const SAMPLE_ICONS = [Landmark, Scale, Home];
 
 const MAX_MB = 10;
-const ACCEPT_MIMES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
-const ACCEPT_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
-const ACCEPT_ATTR = "application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp";
+const ACCEPT_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const ACCEPT_EXTS = new Set(["png", "jpg", "jpeg", "webp"]);
+const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp";
 
 interface PickedFile {
   name: string;
@@ -75,6 +75,12 @@ export default function AnalyzePage() {
     const invalid = validate(f);
     if (invalid) {
       setError(invalid);
+      return;
+    }
+    // Check if file is PDF - OCR coming soon
+    const ext = (f.name.toLowerCase().split(".").pop() ?? "") as string;
+    if (ext === "pdf" || f.type === "application/pdf") {
+      setError("PDF upload is coming soon. Please paste the notice text for now.");
       return;
     }
     setPicked({ name: f.name, size: f.size, type: f.type || f.name.split(".").pop()?.toUpperCase() || "file", file: f });
@@ -284,6 +290,9 @@ export default function AnalyzePage() {
                     </span>
                     <span className="text-[11px] text-slate-400">
                       {t.up_max}: {MAX_MB} MB
+                    </span>
+                    <span className="mt-2 text-[11px] text-amber-600 font-medium">
+                      PDF support coming soon — use images (PNG/JPG/WebP) or paste text
                     </span>
                   </div>
                 ) : (
