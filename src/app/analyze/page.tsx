@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ClipboardPaste,
@@ -16,27 +16,122 @@ import {
   Landmark,
   Scale,
   Home,
+  FileUp,
+  FileType,
 } from "lucide-react";
 import { useLang } from "@/components/lexlens/language-provider";
 import { SAMPLES } from "@/lib/lexlens/samples";
 import { LOCALE_LABELS, OUTPUT_LOCALES } from "@/lib/lexlens/types";
 type Tab = "paste" | "file" | "samples";
 
+const MAX_MB = 10;
+const ACCEPT_MIMES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+const ACCEPT_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
+const ACCEPT_ATTR = "application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp";
+
+interface PickedFile {
+  name: string;
+  size: number;
+  type: string;
+  file: File;
+}
+
 const SAMPLE_ICONS = [Landmark, Scale, Home];
 
 export default function AnalyzePage() {
   const { t, locale } = useLang();
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>("paste");
   const [jurisdiction, setJurisdiction] = useState<"INDIA" | "USA" | "">("");
   const [text, setText] = useState("");
+  const [picked, setPicked] = useState<PickedFile | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<{ status: string; progress: number } | null>(null);
 
 
   const canStartPaste = text.trim().length >= 40 && !starting;
   const charCount = useMemo(() => text.trim().length, [text]);
+
+  function validateFile(file: File): string | null {
+    const extension = file.name.toLowerCase().split(".").pop() ?? "";
+    if (!ACCEPT_MIMES.has(file.type) && !ACCEPT_EXTS.has(extension)) return "PDF, JPG, PNG or WEBP files only.";
+    if (file.size === 0) return "This file is empty.";
+    if (file.size > MAX_MB * 1024 * 1024) return `Please choose a file smaller than ${MAX_MB} MB.`;
+    return null;
+  }
+
+  function pickFile(file: File) {
+    const validationError = validateFile(file);
+    setError(validationError);
+    if (!validationError) setPicked({ name: file.name, size: file.size, type: file.type || "file", file });
+  }
+
+  const runOcr = useCallback(async (file: File): Promise<string> => {
+    const { createWorker } = await import("tesseract.js");
+    const worker = await createWorker("eng", 1, {
+      logger: (message: { status: string; progress: number }) => {
+        if (message.status === "recognizing text") {
+          setOcrProgress({ status: "Reading text...", progress: Math.round(message.progress * 100) });
+        } else if (message.status) {
+          setOcrProgress({ status: message.status, progress: 0 });
+        }
+      },
+    });
+
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdf) {
+        const result = await worker.recognize(file);
+        return result.data.text.trim();
+      }
+
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
+      const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      const pages: string[] = [];
+
+      for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+        setOcrProgress({ status: `Reading PDF page ${pageNumber} of ${pdfDocument.numPages}...`, progress: 0 });
+        const page = await pdfDocument.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not prepare the PDF page for OCR.");
+        await page.render({ canvasContext: context, viewport }).promise;
+        const result = await worker.recognize(canvas);
+        pages.push(result.data.text.trim());
+      }
+      return pages.filter(Boolean).join("\n\n").trim();
+    } finally {
+      await worker.terminate();
+      setOcrProgress(null);
+    }
+  }, []);
+
+  async function startWithFile() {
+    if (!picked) return;
+    setError(null);
+    setStarting(true);
+    try {
+      const extractedText = await runOcr(picked.file);
+      if (extractedText.length < 40) {
+        setError("OCR could not read enough text. Try a clearer file or paste the text manually.");
+        return;
+      }
+      const id = await createFromText(picked.name, "ocr", extractedText.slice(0, 20_000));
+      router.push(`/processing?id=${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OCR failed. Please try again or paste the text manually.");
+    } finally {
+      setStarting(false);
+    }
+  }
 
   async function createFromText(label: string, source: string, noticeText: string): Promise<string> {
     const res = await fetch("/api/notices", {
@@ -168,21 +263,91 @@ export default function AnalyzePage() {
 
             {/* ── File upload ── */}
             {tab === "file" && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                  <UploadCloud className="h-6 w-6" />
-                </div>
-                <h3 className="mt-4 text-base font-bold text-slate-900">{t.an_file_coming_title}</h3>
-                <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-600">
-                  {t.an_file_coming_body}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setTab("paste")}
-                  className="mt-5 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
-                >
-                  {t.an_file_use_text} <ArrowRight className="h-4 w-4" />
-                </button>
+              <div>
+                {!picked ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(event) => event.key === "Enter" && fileInputRef.current?.click()}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDragOver(false);
+                      const file = event.dataTransfer.files?.[0];
+                      if (file) pickFile(file);
+                    }}
+                    className={`flex w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
+                      dragOver ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-slate-50/50 hover:border-indigo-400 hover:bg-indigo-50/40"
+                    }`}
+                  >
+                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
+                      <FileUp className="h-7 w-7" />
+                    </span>
+                    <span className="text-sm font-bold text-slate-800">Choose or drop a PDF/image</span>
+                    <span className="text-xs text-slate-500">Free OCR runs privately in your browser</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-500">
+                      PDF, JPG, JPEG, PNG, WEBP · up to {MAX_MB} MB
+                    </span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <FileType className="h-5 w-5 shrink-0 text-indigo-600" />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold text-slate-900">{picked.name}</div>
+                          <div className="text-xs text-slate-500">{(picked.size / 1024 / 1024).toFixed(1)} MB</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPicked(null)}
+                        disabled={starting}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-500 disabled:opacity-40"
+                        aria-label={t.an_clear}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCEPT_ATTR}
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) pickFile(file);
+                    event.target.value = "";
+                  }}
+                />
+                {ocrProgress && (
+                  <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                    <div className="flex items-center justify-between text-sm font-semibold text-indigo-700">
+                      <span>{ocrProgress.status}</span>
+                      <span>{ocrProgress.progress}%</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100">
+                      <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${ocrProgress.progress}%` }} />
+                    </div>
+                  </div>
+                )}
+                {picked && (
+                  <button
+                    type="button"
+                    onClick={() => void startWithFile()}
+                    disabled={starting}
+                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                  >
+                    {starting ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading file...</> : <>Extract text & analyze <ArrowRight className="h-4 w-4" /></>}
+                  </button>
+                )}
               </div>
             )}
 
