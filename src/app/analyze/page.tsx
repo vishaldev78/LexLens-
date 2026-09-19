@@ -145,9 +145,6 @@ export default function AnalyzePage() {
 
     setOcrProgress({ status: "Loading OCR engine...", progress: 0 });
 
-    await worker.loadLanguage("eng");
-    await worker.initialize("eng");
-
     let imageSource: File | HTMLCanvasElement = file;
     
     // If PDF, render first page to canvas first
@@ -159,7 +156,8 @@ export default function AnalyzePage() {
 
     setOcrProgress({ status: "Reading image...", progress: 0 });
 
-    const { data } = await worker.recognize(imageSource, {
+    // Tesseract.js v5+: pass language directly to recognize()
+    const { data } = await worker.recognize(imageSource, "eng", {
       logger: (m: { status: string; progress: number }) => {
         if (m.status === "recognizing text") {
           setOcrProgress({ status: "Extracting text...", progress: Math.round(m.progress * 100) });
